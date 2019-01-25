@@ -16,6 +16,10 @@ https://liam.page/2016/07/10/a-not-so-simple-introduction-to-lambdamart/
 图文讲解lambdamart
 http://blog.jqian.net/post/lambdamart.html
 
+讲到ftlr也是基于梯度下降的在线学习
+
+https://www.zhihu.com/question/28025036/answer/107297334
+
 
 ## 推荐书籍
 
