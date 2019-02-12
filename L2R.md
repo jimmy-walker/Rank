@@ -20,6 +20,10 @@ http://blog.jqian.net/post/lambdamart.html
 
 https://www.zhihu.com/question/28025036/answer/107297334
 
+里面提到用ranklib而非es的ltr插件进行排序更好，因为不依赖es的版本。
+
+https://hackernoon.com/learning-to-rank-for-job-search-d1dc44d7070
+
 
 ## 推荐书籍
 
@@ -42,3 +46,11 @@ https://github.com/cixuuz/LTR.project
 
 基于tensorflow实现的l2r
 https://github.com/ChenglongChen/tensorflow-LTR
+
+## ctr
+
+https://github.com/guoday/ctrNet-tool（实现了ctr的算法FM, FFM, NFFM ）
+
+## 个性化排序实战
+
+个性化排序实战
