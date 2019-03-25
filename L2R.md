@@ -24,6 +24,10 @@ https://www.zhihu.com/question/28025036/answer/107297334
 
 https://hackernoon.com/learning-to-rank-for-job-search-d1dc44d7070
 
+A Deep Look into Neural Ranking Models for Information Retrieval
+https://arxiv.org/pdf/1903.06902.pdf
+这是一篇综述类文章，可以好好看下。了解下最新进展。
+
 
 ## 推荐书籍
 
@@ -50,6 +54,12 @@ https://github.com/ChenglongChen/tensorflow-LTR
 ## ctr
 
 https://github.com/guoday/ctrNet-tool（实现了ctr的算法FM, FFM, NFFM ）
+
+Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序中。
+
+此文讲得很好：https://www.infoq.cn/article/wEdZsdQZ2pIKjs_x3JGJ?utm_source=rss&utm_medium=article
+
+将几个之间的关系都讲清楚了。
 
 ## 个性化排序实战
 
