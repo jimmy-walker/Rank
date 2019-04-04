@@ -97,7 +97,7 @@ ctr与ltr是两码事，前者可以作为后者的一个特征
 
 <https://www.infoq.cn/article/yhd-11-11-mlr-ec-search> 
 
-### l2r方法分类（线性模型，交叉模型 J我认为就是所谓的fm，树模型j我认为lambdamart也算，深度模型）
+### l2r方法分类（线性模型，交叉模型 J我认为就是所谓的fm，树模型j我认为lambdamart也算，深度模型）J其实这里说的不对，传统l2r方法是不包含这些深度学习方法的，但是现在有趋势是不断开始使用了wide & deep到l2r中了，实现pairwise/listwise的排序算法 ：<https://zhuanlan.zhihu.com/p/53110408> 
 
 主要分类如下：
 
@@ -380,7 +380,17 @@ ERR表示使用者的需求被滿足時停止的位置的倒數的期望
 
 <https://coladrill.github.io/2018/06/21/2018%E8%85%BE%E8%AE%AF%E5%B9%BF%E5%91%8A%E7%AE%97%E6%B3%95%E5%A4%A7%E8%B5%9B%E7%BB%8F%E5%8E%86/> 
 
+### 目标：深度学习用于排序：
+
+tensorflow的tf ranking 实现，实现lambdamart和wide deep
+
+<https://zhuanlan.zhihu.com/p/52447211> 
+
+<https://tech.meituan.com/2018/06/21/deep-learning-doc.html> 
+
 # Reference
 
 <https://blog.51cto.com/13679539/2107239> 
+
+<http://www.10tiao.com/html/198/201701/2653121395/1.html> 
 
