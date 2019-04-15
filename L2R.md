@@ -7,6 +7,9 @@ Learning to Rank主要有3种算法：
 3. Listwise: ListNet, ListMLE, AdaRank, SVM MAP, Soft Rank
 
 ## 推荐文章
+
+里面有l2r的资源：看一下是否能够整理出学习路线：<https://github.com/chihming/competitive-recsys> 
+
 介绍系统层面：
 https://www.jiqizhixin.com/articles/2018-12-21-11
 讲到深度学习用于l2r**（J继续寻找该代码）**
