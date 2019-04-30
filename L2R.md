@@ -80,6 +80,14 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 
 ## 整理
 
+###一种新的观点：提出新的适用于ir的深度学习模型：PACRR与deepfm之流是不同的！目前看来应该说那些推荐的都是适用于排序的，不是用于匹配的，应该匹配的就是这些提出的模型。 
+
+###<https://paperswithcode.com/paper/190407094> 
+
+<https://zhuanlan.zhihu.com/p/38296950> 
+
+<https://zhuanlan.zhihu.com/p/45849695> 
+
 ### CTR，LTR，推荐的关系
 
 ctr即点击率，在推荐系统中，通常是按照ctr来对召回的内容子集进行排序，然后再结合策略进行内容的分发。<https://zhuanlan.zhihu.com/p/32689178> 
@@ -390,6 +398,8 @@ tensorflow的tf ranking 实现，实现lambdamart和wide deep
 <https://zhuanlan.zhihu.com/p/52447211> 
 
 <https://tech.meituan.com/2018/06/21/deep-learning-doc.html> 
+
+<https://www.infoq.cn/article/vKoKh_ZDXcWRh8fLSsRp?utm_source=rss&utm_medium=article> 
 
 # Reference
 
