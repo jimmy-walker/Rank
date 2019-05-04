@@ -38,6 +38,8 @@ https://arxiv.org/pdf/1903.06902.pdf
 
 ## 推荐代码
 
+https://paperswithcode.com/paper/lifelong-sequential-modeling-with 关于淘宝，有代码
+
 https://github.com/jattenberg/RankLib 基于java
 
 https://github.com/codelibs/ranklib 基于java，下面项目的clone
