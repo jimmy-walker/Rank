@@ -38,6 +38,10 @@ https://arxiv.org/pdf/1903.06902.pdf
 
 ## 推荐代码
 
+<https://www.infoq.cn/article/iDt28zXQuKqBfG*wCWfc?utm_source=rss&utm_medium=article> 
+
+讲deepctr的里面各种算法代码都有
+
 https://paperswithcode.com/paper/lifelong-sequential-modeling-with 关于淘宝，有代码
 
 https://github.com/jattenberg/RankLib 基于java
