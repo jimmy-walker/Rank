@@ -31,6 +31,10 @@ A Deep Look into Neural Ranking Models for Information Retrieval
 https://arxiv.org/pdf/1903.06902.pdf
 这是一篇综述类文章，可以好好看下。了解下最新进展。
 
+linkedin的个性化搜索
+
+<https://www.infoq.cn/article/Qz1o7-WmVWkj5uPIsGVa?utm_source=rss&utm_medium=article> 
+
 
 ## 推荐书籍
 
