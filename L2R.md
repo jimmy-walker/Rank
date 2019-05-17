@@ -74,6 +74,10 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 
 将几个之间的关系都讲清楚了。
 
+<https://www.infoq.cn/article/0vXxt3_WwTHyNOo7Lrca?utm_source=rss&utm_medium=article> 
+
+用实例代码讲解了deepfm在ctr中的应用
+
 ## 个性化排序实战
 
 个性化排序实战
