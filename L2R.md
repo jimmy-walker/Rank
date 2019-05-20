@@ -415,6 +415,10 @@ tensorflow的tf ranking 实现，实现lambdamart和wide deep
 
 <https://www.infoq.cn/article/vKoKh_ZDXcWRh8fLSsRp?utm_source=rss&utm_medium=article> 
 
+新推出的开源代码
+
+<https://paperswithcode.com/paper/unbiased-lambdamart-an-unbiased-pairwise> 
+
 # Reference
 
 <https://blog.51cto.com/13679539/2107239> 
