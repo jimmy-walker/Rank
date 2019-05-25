@@ -420,7 +420,7 @@ tensorflow的tf ranking 实现，实现lambdamart和wide deep
 <https://paperswithcode.com/paper/unbiased-lambdamart-an-unbiased-pairwise> 
 
 
-##待看资源
+## 待看资源
 计算搜索相关性
 https://github.com/mitre/quaerite
 
