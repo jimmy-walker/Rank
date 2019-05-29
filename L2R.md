@@ -64,7 +64,17 @@ https://github.com/cixuuz/LTR.project
 基于tensorflow实现的l2r
 https://github.com/ChenglongChen/tensorflow-LTR
 
+讲用户行为和点击率的
+
+<https://paperswithcode.com/paper/practice-on-long-sequential-user-behavior> 
+
+讲bert中搜索的
+
+<https://github.com/AdeDZY/SIGIR19-BERT-IR> 
+
 ## ctr
+
+<https://www.infoq.cn/article/RxVVzJEl-2IfNkTY4XRs?utm_source=rss&utm_medium=article> 阿里中ctr的应用
 
 https://github.com/guoday/ctrNet-tool（实现了ctr的算法FM, FFM, NFFM ）
 
@@ -283,6 +293,12 @@ GBDT 生成特征向量的过程
 <https://cloud.tencent.com/developer/article/1005416> 
 
 ### 指标
+
+###计算框架：但其实没有解决数据标注的问题
+
+一个计算框架
+
+<https://github.com/SeaseLtd/rated-ranking-evaluator?1559101213357> 
 
 ####MAP
 
