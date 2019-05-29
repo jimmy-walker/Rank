@@ -434,7 +434,8 @@ tensorflow的tf ranking 实现，实现lambdamart和wide deep
 新推出的开源代码
 
 <https://paperswithcode.com/paper/unbiased-lambdamart-an-unbiased-pairwise> 
-
+也是l2r的代码
+https://github.com/facebookresearch/foltr-es
 
 ## 待看资源
 计算搜索相关性
