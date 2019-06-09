@@ -35,6 +35,12 @@ linkedin的个性化搜索
 
 <https://www.infoq.cn/article/Qz1o7-WmVWkj5uPIsGVa?utm_source=rss&utm_medium=article> 
 
+这个人的课程可能评价不高，但是里面的学习路线我可以借鉴：
+Use LAMBDAMART, LAMBDANET, RANKNET Machine Learning Algorithms for ranking Search results
+Use RankLib to train ranking models
+Use Learning To Rank Plug to configure and collect features
+https://www.udemy.com/ranking-search-results-using-machine-learning/
+
 
 ## 推荐书籍
 
@@ -100,6 +106,15 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 
 【要求】 1. 有搜索引擎、推荐系统或广告系统相关算法工作经验； 2. 熟悉机器学习/数据挖掘/信息检索/深度学习/神经网络的算法原理； 3. 熟悉LR/FFM/GBDT/DNN等排序算法以及Wide&Deep/DSSM等深度模型，有TensorFlow开发经验者优先； 4. 熟悉自然语言处理的常见算法原理，有文本相似度计算或语义相似度计算经验者优先； 5. 熟悉C++、python、scala、Java等编程语言（一项或多项）； 6. 熟悉MPI、MapReduce、Spark等并行计算框架。
 
+京东算法工程师
+工作内容
+1. 参与搜索相关性，查询理解，自然语言处理等算法优化，并应用到电商搜索排序中
+2. 将深度学习技术应用到电商搜索相关性排序中。
+岗位要求：
+1. 计算机，数学，软件相关专业，硕士两年以上工作经验，熟练使用c++, python等编程语言。
+2. 熟悉常用机器学习，自然语言处理，深度学习技术。对dnn、cnn、lstm，transformer，dssm，irgan熟练者优先。
+3、优秀的学习能力和沟通能力，有高度责任感，具备技术研发热情和团队协作精神。
+4. 有搜索，推荐，广告算法经验者优先
 
 
 ## 整理
