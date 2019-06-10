@@ -8,6 +8,8 @@ Learning to Rank主要有3种算法：
 
 ## 推荐文章
 
+小米的工作，提示了一个文本相关性的工作，第二个就是在点击模型中融合？可能要具体查一下怎么做的<https://www.infoq.cn/article/1pcW2hMQt6wsFxaN*srw?utm_source=rss&utm_medium=article> 
+
 里面有l2r的资源：看一下是否能够整理出学习路线：<https://github.com/chihming/competitive-recsys> 
 
 介绍系统层面：
