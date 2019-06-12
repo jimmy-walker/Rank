@@ -43,6 +43,12 @@ Use RankLib to train ranking models
 Use Learning To Rank Plug to configure and collect features
 https://www.udemy.com/ranking-search-results-using-machine-learning/
 
+贝叶斯的排序
+
+<https://github.com/RunlongYu/BPR_MPR> 
+
+
+
 
 ## 推荐书籍
 
@@ -95,6 +101,8 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 <https://www.infoq.cn/article/0vXxt3_WwTHyNOo7Lrca?utm_source=rss&utm_medium=article> 
 
 用实例代码讲解了deepfm在ctr中的应用
+
+可以看下里面的related work：<https://paperswithcode.com/paper/deep-spatio-temporal-neural-networks-for> 
 
 ## 个性化排序实战
 
