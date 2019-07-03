@@ -81,6 +81,12 @@ def score(self, ratings, rating_prior, rating_utility):
     return score / sum(ratings)
 ```
 
+## 待看
+
+类似的一个改进：
+
+<https://medium.com/airy-science/search-ranking-with-bayesian-inference-608275e36ee> 
+
 #References
 
 - [stackexchange回答](https://stats.stackexchange.com/questions/15979/how-to-find-confidence-intervals-for-ratings)

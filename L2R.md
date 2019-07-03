@@ -3,8 +3,29 @@
 Learning to Rank主要有3种算法：
 
 1. Pointwise: Subset Ranking, McRank, Prank, OC SVM
+
 2. Pairwise: Ranking SVM, RankBoost, RankNet, GBRank, IR SVM, Lambda Rank, LambdaMart
+
 3. Listwise: ListNet, ListMLE, AdaRank, SVM MAP, Soft Rank
+
+##新的方法强化学习（好好看看）
+https://www.infoq.cn/article/uqgproEH7TGBlBCf*cJ7?utm_source=rss&utm_medium=article
+
+似乎能解决马太效应问题！
+
+<https://102.alibaba.com/detail/?id=189> 
+
+但似乎从本文来看，先实现learning to rank乃至线上更为实际。毕竟仍然发挥很大作用。
+
+## 数据集
+
+https://www.sogou.com/labs/resource/e.php
+
+其中讲到如何自动构建数据集的
+
+ogeek算法，数据已经保存到百度网盘和current github
+
+好好研究下！！！！
 
 ## 推荐文章
 
@@ -86,6 +107,14 @@ https://github.com/ChenglongChen/tensorflow-LTR
 
 <https://github.com/AdeDZY/SIGIR19-BERT-IR> 
 
+
+
+看下此文爱彼迎在深度学习排序方面的尝试，可惜没有代码，只有论文，但是网上反映值得一读
+
+<https://www.infoq.cn/article/ZhYeLX*ylFawD26KpDRo?utm_source=rss&utm_medium=article> 
+
+<https://mx-1024.github.io/posts/2019/05/13/62440/> 
+
 ## ctr
 
 <https://www.infoq.cn/article/RxVVzJEl-2IfNkTY4XRs?utm_source=rss&utm_medium=article> 阿里中ctr的应用
@@ -103,6 +132,12 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 用实例代码讲解了deepfm在ctr中的应用
 
 可以看下里面的related work：<https://paperswithcode.com/paper/deep-spatio-temporal-neural-networks-for> 
+
+<https://paperswithcode.com/paper/representation-learning-assisted-click> 
+
+解决long user behavior sequence问题的ctr
+
+<https://paperswithcode.com/paper/practice-on-long-sequential-user-behavior> 
 
 ## 个性化排序实战
 
