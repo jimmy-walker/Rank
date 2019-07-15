@@ -1,11 +1,19 @@
 # Learning to Rank
 
+这里似乎有总结和代码，以宏观角度说l2r是一种方向：<https://zhuanlan.zhihu.com/p/26221188> 
+
+信息检索的任务是给定一个query，返回一个排好序的list，list包含文档或者item，在文本检索、推荐系统和QA等领域有非常广泛的应用。classic school的思想是假设在query和list之间有一个潜在的随机生成(**\*generative***)过程，也就是重点关注给定一个query，list中的d是如何生成的，即 ![[公式]](https://www.zhihu.com/equation?tex=q%5Crightarrow+d) 。与经典学派不同的是，modern school的思想是使用机器学习的方法，利用一个判别(**\*discriminative***)模型来计算q和d之间的相关性，也就是 ![[公式]](https://www.zhihu.com/equation?tex=q%2Bd%5Crightarrow+r) 。目前流行的方法是learning to rank(LTR），包括pointwise、pairwise和listwise的方法。两种方法各有优劣 。
+
+这里面有很多好的文章：<https://www.zhihu.com/topic/19610987/hot> 话题搜索排序
+
+此人专栏讲得也不错：<https://zhuanlan.zhihu.com/p/69246361> 
+
+
+
 Learning to Rank主要有3种算法：
 
 1. Pointwise: Subset Ranking, McRank, Prank, OC SVM
-
 2. Pairwise: Ranking SVM, RankBoost, RankNet, GBRank, IR SVM, Lambda Rank, LambdaMart
-
 3. Listwise: ListNet, ListMLE, AdaRank, SVM MAP, Soft Rank
 
 ##新的方法强化学习（好好看看）
@@ -26,6 +34,10 @@ https://www.sogou.com/labs/resource/e.php
 ogeek算法，数据已经保存到百度网盘和current github
 
 好好研究下！！！！
+
+**？为何交叉特征的时候，tag不做prefix_pinyin, 只计算部分特征**
+
+****
 
 ## 推荐文章
 
@@ -115,6 +127,20 @@ https://github.com/ChenglongChen/tensorflow-LTR
 
 <https://mx-1024.github.io/posts/2019/05/13/62440/> 
 
+下面有代码，但是论文还没出来，没看懂是做什么的
+
+<https://github.com/motefly/DeepGBM> 
+
+考虑了相关的未点击的时域和空间阈ads之间的影响下的ctr
+
+<https://github.com/oywtece/dstn> 
+
+ctr的论文，用深度学习来做
+
+<https://arxiv.org/pdf/1906.04365v1.pdf> 
+
+<https://paperswithcode.com/paper/representation-learning-assisted-click> 
+
 ## ctr
 
 <https://www.infoq.cn/article/RxVVzJEl-2IfNkTY4XRs?utm_source=rss&utm_medium=article> 阿里中ctr的应用
@@ -138,6 +164,10 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 解决long user behavior sequence问题的ctr
 
 <https://paperswithcode.com/paper/practice-on-long-sequential-user-behavior> 
+
+讲了好多篇文章，J根本看不懂。。。
+
+<https://www.zhihu.com/question/333087916/answer/736337744> 
 
 ## 个性化排序实战
 
@@ -176,9 +206,9 @@ Jctr与learning to rank似乎不同。比如FFM方法不会应用在搜索排序
 
 ctr即点击率，在推荐系统中，通常是按照ctr来对召回的内容子集进行排序，然后再结合策略进行内容的分发。<https://zhuanlan.zhihu.com/p/32689178> 
 
-ctr与ltr是两码事，前者可以作为后者的一个特征
-基本弄懂了，ctr是一个指标名称，其指标常用于推荐任务，作为其中的一个特征（<https://blog.51cto.com/13679539/2107239> ）或是直接作为推荐的指标（<https://zhuanlan.zhihu.com/p/32689178> ），而ltr是一个任务名称，是针对搜索的任务，ctr可以作为一个特征传入，
-而ltr与ctr的区别往往在于前者会考虑排序位置信息。L2R（Learning to Rank，也可做LTR）任务，形式上与CTR预估类似，但不同的是输入信息中需要包含具体的商品排序特征（Ranking Features）。CTR预估会作为Ranking Feature在线上生效。LTR会影响Ranking Feature的排序过程，因此影响更大。https://blog.51cto.com/13679539/2107239> 
+ctr与ltr是两码事，前者可以作为后者的一个特征，**其本身就是一个训练目标，可以利用ltr中pointwise的方法进行训练学习ctr。**
+基本弄懂了，ctr是一个指标名称，其指标常用于推荐任务，作为其中的一个特征（<<https://cloud.tencent.com/info/8f4c84190bd753bf2338e84308328935.html> > ）或是直接作为推荐的指标（<https://zhuanlan.zhihu.com/p/32689178> ），而ltr是一个任务名称，是针对搜索的任务，ctr可以作为一个特征传入，
+而ltr与ctr的区别往往在于前者会考虑排序位置信息。L2R（Learning to Rank，也可做LTR）任务，形式上与CTR预估类似，但不同的是输入信息中需要包含具体的商品排序特征（Ranking Features）。CTR预估会作为Ranking Feature在线上生效。LTR会影响Ranking Feature的排序过程，因此影响更大。<https://cloud.tencent.com/info/8f4c84190bd753bf2338e84308328935.html> > 
 
 ### 大致流程（搜索排序还是推荐排序）
 
