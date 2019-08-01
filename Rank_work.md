@@ -4,18 +4,136 @@
 
 ### 思索
 
-- 以CTR为基础，为什么不直接用CTR排序呢，这是因为一些新的项目或是一些新的query时，那就没法用CTR数据了，只能用这个模型进行预估。
+- **~~先搞定贝叶斯平滑对ctr的修正，应用到relevance~~，~~关于intent的不行先用去除热门歌手的query~~，然后再用构造方法构造训练集**。在ubm论文索引中使用"smoothing "click model""
+
+- 以CTR为基础，为什么不直接用CTR排序呢，这是因为一些新的项目或是一些新的query时，那就没法用CTR数据了，只能用这个模型进行预估。另外，有些是用`ctr*a+cvr`进行排序的。
+
 - 为了构建出 <q, p, r-score> 的数值 pair 对。能否直接用前面位置（比如前10）的修正过的点击模型吸引力来进行构建呢，这就会避免贝叶斯平滑带来的问题了。即分别准备一个pairwise和一个pointwise数据集。
+
 - 预估用户对每条资讯的偏好程度，一般以点击率衡，在很多场合下排序学习（ltr）就等同于点击率预估。J因为可能有时候业务需要用cvr来进行排序。所以CTR的方法都能用，但是难点在于数据集的构建。因为对于不同query下，不能用总体ctr，曝光也不一致。
-- 可以考虑先用LR或者是树模型lightgbm或者lambdarank。。。。注意补充上交叉特征，并且可解释。关键先把数据构建完。。。避免稀疏。所有特征按类型划分为离散型、连续型、向量型三种类型。如item类别就是一个离散型特征、item ctr就是一个连续性特征、标题向量就是一个向量型特征。对于连续值我们部分参考youtube wide & deep论文中的等频归一化方法，简单来说加入ctr特征需要等屏成10个特征，即将ctr值按照分布取其10等分点，这10等分点就定义了10个区间，每个区间的样本数都占10%。 我们没有使用bagof word模型来表示标题，因为这非常稀疏，而是采用标题中关键词的word2vec向量组合生成标题表示，使用词向量来表示标题极大减少了特征规模，实现上比较方便。标题向量同时需要归一化成单位向量，单位向量的余弦相似度即两个向量的内积，这个优化显著提高了ltr在线模块的性能。**J可能不需要使用向量特征，毕竟需要重新训练而已，并且不像搜索引擎一样需要很多的召回，还是严格模式。**
+
+- 可以考虑先用LR或者是树模型lightgbm或者lambdarank，有证据表明**xgb和wide&deep值得学习，所以考虑lightgbm和wide&deep**。。。。注意补充上交叉特征，并且可解释。关键先把数据构建完。。。避免稀疏。所有特征按类型划分为离散型、连续型、向量型三种类型。如item类别就是一个离散型特征、item ctr就是一个连续性特征、标题向量就是一个向量型特征。对于连续值我们部分参考youtube wide & deep论文中的等频归一化方法，简单来说加入ctr特征需要等屏成10个特征，即将ctr值按照分布取其10等分点，这10等分点就定义了10个区间，每个区间的样本数都占10%。 我们没有使用bagof word模型来表示标题，因为这非常稀疏，而是采用标题中关键词的word2vec向量组合生成标题表示，使用词向量来表示标题极大减少了特征规模，实现上比较方便。标题向量同时需要归一化成单位向量，单位向量的余弦相似度即两个向量的内积，这个优化显著提高了ltr在线模块的性能。**J可能不需要使用向量特征，毕竟需要重新训练而已，并且不像搜索引擎一样需要很多的召回，还是严格模式。**
+
 - 部署：hive和reddit都有特征存储。使用一天的训练数据的情况下，整个特征空间规模约为30万维左右。我们使用N-2天前的日志做训练，N-1天前的日志做评估，需保证两部分日志的用户群体是一致的。我们采用1500万条样本做训练，300万条样本做评估。J在我这里还不需要利用时间上面进行训练，因为不进行个性化处理。
+
 - 特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。
+
 - 构建样本时**J自己的想法**，对于点击样本，如果都前后两个都点击了，则不计算pair；对于未点击样本，并不是指未点击，而是不考虑点击而已。~~就算两个样本中有矛盾，这也不要紧，因为就是要把loss降低而已。所以要对热门的都进行计算~~**感觉还是不能矛盾，按照PPT的思路就是先用总体ctr生成pair（曝光的行为之前的，可以考虑不用贝叶斯平滑或者用贝叶斯平滑两者比较）（考虑相同名称的取最高值），~~然后对于单个行为时的具体行为，将不符合的去除，这样就避免矛盾了。最后再对同一query下进行set，去除重复的，这里到时候看看数据集要不要去除重复，因为合并的话其实回到单个行为意义就不打大了，毕竟肯定又是和原来的一样了。J我想到一点将各个pv中得到的A,B,1聚合起来，比如有矛盾的A,B,0,然后统计数量，毕竟不存在的不出现。最后如果有0，就把他改正过来变成1~~。** **<u>淘宝的数据利用是对每个pv的，因为每个用户不一样，所以用户id特征值不一样，J对于不同时间的可以合并起来，而我们这里似乎不用个性化了，就直接使用聚合即可，不用再返回到单独pv了，或者就回到单独pv，不过就是重复即可，等于是让其更重要</u>**
+
 - 可解释功能待做，因为独立不影响。
+
 - [From RankNet to LambdaRank to LambdaMART: An Overview](https://pdfs.semanticscholar.org/0df9/c70875783a73ce1e933079f328e8cf5e9ea2.pdf) 好好看看
+
 - [A Novel Algorithm for Unbiased Learning to Rank ](https://arxiv.org/abs/1809.05818) 也看看点击模型在其中的用途
+
 - [Unbiased Learning-to-Rank with Biased Feedback](https://www.ijcai.org/proceedings/2018/0738.pdf) 也看看电机模型在其中的用途
-- 把算法详解中好好看看。**先搞清楚构建数据集，然后慢慢看算法原理，可以看代码理解原理。**
+
+- 把算法详解中好好看看。**先搞清楚构建数据集，然后慢慢看算法原理，可以看代码理解原理。[比如这个](**<https://github.com/cnkuangshi/LightCTR> **)**
+
+- **<u>用点击模型计算相关度时，要么使用改进过的点击模型浏览，要么使用直接用播放来代替或用大的贝叶斯平滑代替，对于歌手名来说，可以考虑用分布情况，分布很散，说明确实是浏览类型。</u>~~亦或者直接在ltr算法中传入关键字类型，从而让算法判断得到当这类算法时，就不用这么算了，不能用这个方法，标注还是不一样的~~**。**<u>可以考虑对于贝叶斯平滑低值附近的就不考虑了，因为太少了。</u>**
+
+- "wide&deep"OR"wide deep"OR"wide and deep" "learning to rank"OR"ltr"没搜到，只说[可以这么干](https://zhuanlan.zhihu.com/p/53110408)
+
+- 从论文中得知**ubm是使用em+最大似然估计，而我们可以考虑使用em+最大后验概率**，比如在下文的抛硬币的实验中假设只有一次和两次正面实验，$\theta, \theta^2$，那么利用最大似然概率，结果就是1，而利用最大后验概率，计算$100\theta^2-50\theta-1=0, 100\theta^2-50\theta-2=0$，得到结果为$0.519, 0.537$
+
+- **clickmodels的方法是不对的，他们的intent是对图像等verticle更感兴趣**，而非浏览和寻找，还是看回UBM的论文和scala版的ubm。而intent这么操作：引入变异系数来做，结合android的曝光6个，就选择小于6个的一般目标较明确，采用所有的最小值，利用播放量前6位的来计算（对歌手名和歌曲名进行聚合，不包含版本）思路清晰了，就是利用这段代码去进行更改：
+
+- ```scala
+    def train(sessions: Seq[(Int, Seq[Int], Seq[Boolean])], maxIter: Int)= {
+      val data = sessions.flatMap { case (q, url, click) =>
+        val distance = click2distance(click)
+        url.zip(distance).map{ case (u, (c, r, d)) =>
+          (q, u, r, d, c) //flat and reorder
+        }
+      }.groupBy{identity}.mapValues{_.length} //key is (query, url, rank, distance, click), value is total number of the key
+      for (i <- 0 until maxIter) {
+        val updates = data.map { case ((q, u, r, d, c), cnt) =>
+          val alpha_uq = alpha(u)(q)
+          val gamma_rd = gamma(r)(d)
+          val mu_q = mu(q)
+          val mu_gamma = mu_q.zip(gamma_rd).map{ case (x, y) => x * y} //2 browsing model the length will become two
+          val dot_prod_mu_gamma = mu_gamma.sum //即分母中的mu和gamma对不同m的和
+          val Q_m_a1_e1_c1 = mu_gamma.map {
+            _ / dot_prod_mu_gamma //就是得到各个意图下查看q中r的情况，that is c within essay
+          }
+          val Q_m_e1_c1 = Q_m_a1_e1_c1
+          val Q_m_c1 = Q_m_a1_e1_c1
+          val Q_a1_c1 = 1.0 //计算alpha时即点击时的S的系数
+          val Q_a1_c0 = alpha_uq * (1 - dot_prod_mu_gamma) / (1 - alpha_uq * dot_prod_mu_gamma) //计算alpha时未点击时的S的系数
+          val Q_m_e1_c0 = mu_gamma.map {
+            _ * (1 - alpha_uq) / (1 - alpha_uq * dot_prod_mu_gamma) //计算gamma时A的未点击的S的系数
+          }
+          val Q_m_c0 = gamma_rd.map { gamma_rdm =>
+            1 - alpha_uq * gamma_rdm
+          }.zip(mu_q).map { //zip的用处可以这样平行连接，把两个向量中对应位置进行计算
+            case (x, y) => x * y / (1 - alpha_uq * dot_prod_mu_gamma) //计算gamma时B的未点击的S的系数
+          }
+          //返回的是tuple
+          val alpha_fraction = if (c) {
+            (Q_a1_c1 * cnt, cnt) //点击时系数乘以S值，和该S值（为了之后计算分母）
+          } else {
+            (Q_a1_c0 * cnt, cnt) //未点击时系数乘以S值，和该S值（为了之后计算分母）
+          }
+          //这里返回的是seq，其中每一项是tuple
+          val gamma_fraction = if (c) {
+            Q_m_e1_c1.map{_ * cnt}.zip(Q_m_c1.map {_ * cnt}) //只是返回A,B的值，不像其他进行计算和累计S值（因为后面需要先累加再A/B，不需要计算分母）
+          } else {
+            Q_m_e1_c0.map {_ * cnt}.zip(Q_m_c0.map {_ * cnt}) //只是返回A,B的值，不像其他进行计算和累计S值（因为后面需要先累加再A/B，后面不需要计算分母）
+          }
+          //这里返回的是seq，其中每一项是tuple
+          val mu_fraction = if (c) {
+            Q_m_c1.map { q_m_c => ( q_m_c * cnt, cnt)} //等价于各个意图下查看q中r的情况乘以S值，和该S值（为了之后计算分母）
+          } else {
+            Q_m_c0.map { q_m_c => (q_m_c * cnt, cnt) } //等价于计算gamma时B的未点击的S的系数乘以S值，和该S值（为了之后计算分母）
+          }
+          ((q, u, r, d), (alpha_fraction, gamma_fraction, mu_fraction))
+        }
+  
+        // update alpha
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          ((u, q), af)
+        }.groupBy {_._1}.mapValues { //以此为key，而与此key相同的元素组成value中的list，即返回是一个map：(u, q), List(((u, q) ,af) ...)
+          _.map {_._2}.reduce[(Double, Int)] { case (x, y) => //Double, Int就是上文得到的系数乘以S值，和该S值
+            (x._1 + y._1, x._2 + y._2) //表示将分子_1和分母_2分别累加
+          }
+        }.foreach{ case ((u, q), (num, den)) =>
+          alpha(u)(q) = num / den //然后更新即可
+        }
+  
+        // update gamma
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          ((r, d), gf)
+        }.groupBy{_._1}.mapValues { //以此为key，而与此key相同的元素组成value中的list，即返回是一个map：(r, d), List(((r, d) ,gf) ...)
+          _.map {_._2}.reduce[Array[(Double, Double)]] { //Double, Double就是上文得到的A,B值，但是因为本身是seq，其中每一项是tuple
+            case (xs, ys) => xs.zip(ys).map { //xs和ys代表seq中的各个tuple，重新组合成_1在一个tuple，_2在一个tuple中
+              case (x, y) => (x._1 + y._1, x._2 + y._2) //表示将分子_1和分母_2分别累加
+            }
+          }
+        }.foreach { case ((r, d), fs) => //其中fs是上面新生成的tuple：(x._1 + y._1, x._2 + y._2)，存储_1,_2的各自之和
+          fs.zipWithIndex.foreach { case ((num, den), m) =>
+            gamma(r)(d)(m) = num / den //然后更新即可
+          }
+        }
+        // update mu
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          (q, mf)
+        }.groupBy{_._1}.mapValues {
+          _.map{_._2}.reduce[Array[(Double, Int)]]{
+            case (xs, ys) => xs zip ys map {
+              case (x, y) => (x._1 + y._1, x._2 + y._2) //因为对于reduce，匿名函数定义了输出形式就如(x._1 + y._1, x._2 + y._2)
+            }
+          }
+        }.foreach { case (q, fs) =>
+          fs.zipWithIndex.foreach{ case ((num, den), m) =>
+            mu(q)(m) = num / den
+          }
+        }
+      }
+        (alpha, gamma, mu)
+    }
+  ```
+
+- ![](picture/ubm-intent.png)
 
 
 ###文章浏览
@@ -285,6 +403,20 @@ GBDT是一个Boosting的模型，通过组合多个弱模型逐步拟合残差�
 
 ![](picture/meituanmodel.png)
 
+#####[深度学习在搜索业务中的探索与实践](https://tech.meituan.com/2019/01/10/deep-learning-in-meituan-hotel-search-engine.html )似乎我的特征数很少。但是看tf[官网](https://vimsky.com/article/3659.html)里子也有特征数比较少用wide，deep的。提示我可以将离散特征如下图一样embedding再传入，这样参数量就大了！！！！但还是特征数少而已。
+
+实际线上使用的连续特征接近400种。
+
+**XGB适合连续特征**，至今为止，**XGB都是数据量较小场景下的主模型，但是树模型优化到后期遇到了瓶颈，比如特征工程收益变小、增大数据量没有额外收益等，此外树模型不适合做在线学习的问题愈发严重。** 
+
+MLP(Multiple-Layer Perception)多层感知机，也就是全连接神经网络。**在很长一段时间内，在特征相同的情况下，MLP效果不如XGB，所以有段时间线上使用的是XGB和MLP的融合模型。后来经过大量的网络结构调整和参数调整，调参经验越来越丰富，MLP才逐步超越XGB**。 
+
+深度排序模型对离散特征的处理有两大类方法，**一类是对离散特征做Embedding，这样离散特征就可以表示成连续的向量放到神经网络中去，另一类是Wide&Deep，把离散特征直接加到Wide侧** 。J我认为就是所谓的预训练和同时训练。
+
+![](picture/embedding.png)
+
+![](picture/meituanmodel2.png)
+
 #####[Multi Task Learning在工业界如何更胜一筹](https://cloud.tencent.com/info/8f4c84190bd753bf2338e84308328935.html) ltr形式上与CTR预估类似，但不同的是输入信息中需要包含具体的商品排序特征（Ranking Features）
 
 任务一是CTR预估任务，这在广告和排序推荐中较为常用，例如预估用户对某电影视频或者音乐的点击率。淘宝会使用CTR来预估用户对某些商品的点击率。公式中主要运用似然函数来表示。输入包括256位的用户表达和商品的embedding，此处的embedding即为用户行为序列中的embedding，两处共享。这些输入信息经过三层网络便可以得到预估结果。
@@ -422,6 +554,286 @@ JavaNNLibrary 线上低延迟预测
 #### IRGAN
 
 #####[IRGAN ：生成对抗网络在搜狗图片搜索排序中的应用](https://zhuanlan.zhihu.com/p/31373052 ) 没看懂，未来研究方向
+
+#### 转化率（CTR）的贝叶斯平滑
+
+#####二项分布的贝叶斯平滑
+
+Beta分布中参数α和β的本质含义，即：α表示点击数，β表示曝光数。因为贝叶斯平滑的具体公式就是：
+
+$$SmoothCTR = \frac{(α + CurrentC - 1)}{( α + β + CurrentI -2)}$$
+
+公式由来：
+- 一般来说，点击还是不点击，这是服从伯努利二项分布的。**$r$表示点击率这个参数。**
+- 而二项分布的共轭分布就是Beta分布，也就是说，点击率服从Beta分布
+- 我们可以从历史数据当中学到历史数据的Beta分布的具体参数，**也就是先验分布$\pi(r)$ （不加任何条件限制的分布），表示点击率这个参数的分布。**
+- 共轭先验有一个特性：如果找到一个$\pi(r)$，它是$\pi(x|r)$的共轭先验，那么r的后验分布$\pi(r|x)$和先验分布$\pi(r)$会有一样的形式。
+- 这个特性告诉我们：先验分布$\pi(r)$ （也就是历史数据）的分布与后验分布$\pi(r|x)$ （也就是x条件下点击率r的分布）是一个形式的
+- 既然我们知道了先验分布$\pi(r)$ （也就是历史数据）的分布是beta分布，那么我们就知道了后验分布$\pi(r|x)$ （也就是x条件下点击率r的分布）分布也是beta分布
+- 也就是说 ：先验分布$\pi(r)$ （也就是历史数据） + 后验知识 —-&gt; 后验分布$\pi(r|x)$ （也就是x条件下点击率r的分布）
+- 那么接下来我们就需要求解后验分布$\pi(r|x)$的beta分布参数了
+- 根据相关的证明（代入贝叶斯公式中推到而成），后验分布的参数$\alpha = \alpha+ C, \beta = \beta + I  - C$
+- 其中I是展示数量，C是点击数量，$\alpha和 \beta$ 是历史数据的beta分布参数
+- 那么后验分布$\pi(r|x)$ 就是 $beta( \alpha+ C,  \beta + I -  C)$
+- **阶段总结**：知道了$\pi(r)$的分布（**因为我们自己定义成了beta分布**），然后知道了二项分布（这是由于点击行为的特点），因而我们知道后验概率也是beta分布了（相关的推导证明）。
+- 设连续性随机变量X的概率密度函数为f(x)，若积分绝对收敛，则称积分的值为随机变量的数学期望：即下面那个积分式。
+- 如果我们要让点击率误差最小，那么取后验分布的均值（均值即期望，针对square error，$L(\hat{r}, r) = (\hat{r} - r)^2$，估计出来的参数通常用$\hat{r}$表示，其是通过样本计算出来的，参数的真值用$r$表示。 根据相关证明，太复杂就没列出，那么当$\hat{r}$等于$r$在$\pi(r|x)$上的期望时，贝叶斯风险最小。 如果知道$\pi(r|x)$的形式，那么只需求$\int r\pi(r|x)\ dr$就可以了，**实际上发现这就是期望的定义**），就是最好的点击率了！！！！也就是（直接根据beta分布的期望公式求解）：$$mean = \frac{\alpha}{\alpha + \beta} =  \frac{\alpha` + C}{\alpha + \beta + I}$$
+- **阶段总结**：针对参数，需要选一个值，使得损失函数最小，即对某广告的点击率而言，需要预估一个点击率，使得对于发生的样本而言，损失函数最小。**发现用后验分布的期望**即可，就是上面那个公式，有C和I加入。
+- **阶段总结矩估计**：现在问题聚焦到怎么预估$\alpha$和$\beta$，然后就能根据点击情况和曝光情况计算出贝叶斯平滑后的值了。方法是将所有广告的点击率进行计算后（看做很多独立的样本），取均值和方差，然后让总体的原点矩与样本的原点矩相等，因为对于点击率参数其总体的Beta分布中，可以计算得到，E(x) = α / (α+β)，D(x) = αβ / (α+β)2(α+β+1)，解出参数$\alpha$和$\beta$。**J我可以考虑对于同一query下所有的歌曲或者所有query，进行计算。**
+
+```python
+        self.alpha = (mean+0.000001) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
+        #self.beta = (1-mean)*(mean*(1-mean)/(var+0.000001)-1)
+        self.beta = (1.000001 - mean) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
+```
+
+
+
+```python
+
+#!/usr/bin/python
+# coding=utf-8
+import numpy
+import random
+import scipy.special as special
+import pandas as pd
+import time
+import math
+from math import log
+class HyperParam(object):
+    def __init__(self, alpha, beta):
+        self.alpha = alpha
+        self.beta = beta
+    def sample_from_beta(self, alpha, beta, num, imp_upperbound):
+        sample = numpy.random.beta(alpha, beta, num)
+        I = []
+        C = []
+        for click_ratio in sample:
+            imp = random.random() * imp_upperbound
+            #imp = imp_upperbound
+            click = imp * click_ratio
+            I.append(imp)
+            C.append(click)
+#             I.append(int(imp))
+#             C.append(int(click))
+        return I, C
+    # 平滑方式1
+    def update_from_data_by_FPI(self, tries, success, iter_num, epsilon):
+        '''estimate alpha, beta using fixed point iteration'''
+        '''tries ： 展示次数
+           success : 点击次数
+           iter_num : 迭代次数
+           epsilon : 精度
+        '''
+        for i in range(iter_num):
+            new_alpha, new_beta = self.__fixed_point_iteration(tries, success, self.alpha, self.beta)
+            # 当迭代稳定时，停止迭代
+            if abs(new_alpha-self.alpha)<epsilon and abs(new_beta-self.beta)<epsilon:
+                break
+            self.alpha = new_alpha
+            self.beta = new_beta
+    def __fixed_point_iteration(self, tries, success, alpha, beta):
+        '''fixed point iteration'''
+        sumfenzialpha = 0.0
+        sumfenzibeta = 0.0
+        sumfenmu = 0.0
+        # digamma 指伽马函数，是阶乘在实数与复数域的扩展
+        sumfenzialpha = special.digamma(success+alpha) - special.digamma(alpha)
+        print (sumfenzialpha)
+        # for i in range(len(tries)):
+        #     sumfenzialpha += (special.digamma(success[i]+alpha) - special.digamma(alpha))
+        #     sumfenzibeta += (special.digamma(tries[i]-success[i]+beta) - special.digamma(beta))
+        #     sumfenmu += (special.digamma(tries[i]+alpha+beta) - special.digamma(alpha+beta))
+        return alpha*(sumfenzialpha/sumfenmu), beta*(sumfenzibeta/sumfenmu)
+      
+    # 平滑方式2
+    def update_from_data_by_moment(self, tries, success):
+        '''estimate alpha, beta using moment estimation'''
+        # 求均值和方差
+        mean, var = self.__compute_moment(tries, success)
+        #print 'mean and variance: ', mean, var
+        #self.alpha = mean*(mean*(1-mean)/(var+0.000001)-1)
+        self.alpha = (mean+0.000001) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
+        #self.beta = (1-mean)*(mean*(1-mean)/(var+0.000001)-1)
+        self.beta = (1.000001 - mean) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
+    
+    def __compute_moment(self, tries, success):
+        # 求均值和方差
+        '''moment estimation'''
+        ctr_list = []
+        # var = 0.0
+        mean = (success / tries).mean()
+#         mean = [(x*1.0)/y for x, y in zip(success, tries)].mean()
+        if len(tries) == 1:
+            var = 0
+        else:
+            var = (success / tries).var()
+#             var = [(x*1.0)/y for x, y in zip(success, tries)].var()
+        # for i in range(len(tries)):
+        #     ctr_list.append(float(success[i])/tries[i])
+        # mean = sum(ctr_list)/len(ctr_list)
+        # for ctr in ctr_list:
+        #     var += pow(ctr-mean, 2)
+        return mean, var
+
+def test():
+    #设定初始值
+    hyper = HyperParam(1, 1)
+    #--------sample training data--------
+    I, C = hyper.sample_from_beta(10, 1000, 10000, 1000)
+    print (I, C)
+    #--------estimate parameter using moment estimation--------
+    hyper.update_from_data_by_moment(numpy.asarray(I, dtype=numpy.float32), numpy.asarray(C, dtype=numpy.float32))
+    print (hyper.alpha, hyper.beta)
+    
+
+```
+
+[公式讲解1](https://blog.csdn.net/jinping_shi/article/details/78334362)
+
+[公式讲解2](https://blog.csdn.net/jinping_shi/article/details/53444100)
+
+[新的估计方法](https://www.cnblogs.com/bentuwuying/p/6498370.html ) 此方法反馈是在较小曝光下并不准，更依赖于初始的alpha和beta，因此索性就直接使用矩估计吧
+
+[新的估计方法2](https://blog.csdn.net/mytestmy/article/details/19088519 )
+
+[代码演示](https://jiayi797.github.io/2017/07/09/%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0%E5%AE%9E%E8%B7%B5-%E8%BD%AC%E5%8C%96%E7%8E%87%E9%A2%84%E4%BC%B0%E4%B9%8B%E8%B4%9D%E5%8F%B6%E6%96%AF%E5%B9%B3%E6%BB%91/ )
+
+##### <u>发现对于本身这个情况，也可以使用贝叶斯平滑，因为对于点击模型而言，也是二项分布，虽然不点击时不为0，但是概率密度函数，还是下面的表达式。两级思考：先用平滑补出alpha和beta，得到点击率，然后再用点击模型从点击率中计算出attractiveness，对于平滑补出的beta-alpha就不进行计算了，毕竟起点都一样了，而且没有实际点击位置意义！</u>
+
+因而可以证明，关于点击模型的点击率的后验概率也是beta分布。
+
+**这么理解，本来得到多少点击多少曝光，然后在进入点击模型之前，我们估算出平滑后有多少先验的点击和曝光，到这里为止，是贝叶斯平滑的范畴没有问题。然后分别针对实际的点击曝光和贝叶斯的点击曝光$\alpha$和$\beta$，进行点击模型计算，这样就能得出平滑后的attractiveness了。**
+
+**唯一的问题是贝叶斯的点击曝光怎么计算attractiveness。J我考虑不进行计算，反正对于同一query下的song都是同样的起点（分子）。此外也符合点击模型定义，毕竟这些贝叶斯的点击曝光是没有具体位置的。**
+
+$$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta)P(\theta)}{\int_0^1P(X|\theta)P(\theta)d\theta}\\&=\frac{C_2^5\theta^3(1-\theta)^2\frac{1}{\mathbf{B}(a,b)}\theta^{a-1}(1-\theta)^{b-1}}{\int_0^1C_2^5\theta^3(1-\theta)^2\frac{1}{\mathbf{B}(a,b)}\theta^{a-1}(1-\theta)^{b-1} d\theta}\\&=\frac{\theta^{(a+3-1)}(1-\theta)^{(b+2-1)}}{\int_0^1 \theta^{(a+3-1)}(1-\theta)^{(b+2-1)} d\theta}\\&=\frac{\theta^{(a+3-1)}(1-\theta)^{(b+2-1)}}{\mathbf{B}(a+3,b+2)}\\&=Beta(\theta | a+3, b+2)\end{align}$$
+
+
+
+### 点击模型
+
+#### UBM
+
+- 就是利用这段代码去进行更改：
+
+- ```scala
+    def train(sessions: Seq[(Int, Seq[Int], Seq[Boolean])], maxIter: Int)= {
+      val data = sessions.flatMap { case (q, url, click) =>
+        val distance = click2distance(click)
+        url.zip(distance).map{ case (u, (c, r, d)) =>
+          (q, u, r, d, c) //flat and reorder
+        }
+      }.groupBy{identity}.mapValues{_.length} //key is (query, url, rank, distance, click), value is total number of the key
+      for (i <- 0 until maxIter) {
+        val updates = data.map { case ((q, u, r, d, c), cnt) =>
+          val alpha_uq = alpha(u)(q)
+          val gamma_rd = gamma(r)(d)
+          val mu_q = mu(q)
+          val mu_gamma = mu_q.zip(gamma_rd).map{ case (x, y) => x * y} //2 browsing model the length will become two
+          val dot_prod_mu_gamma = mu_gamma.sum //即分母中的mu和gamma对不同m的和
+          val Q_m_a1_e1_c1 = mu_gamma.map {
+            _ / dot_prod_mu_gamma //就是得到各个意图下查看q中r的情况，that is c within essay
+          }
+          val Q_m_e1_c1 = Q_m_a1_e1_c1
+          val Q_m_c1 = Q_m_a1_e1_c1
+          val Q_a1_c1 = 1.0 //计算alpha时即点击时的S的系数
+          val Q_a1_c0 = alpha_uq * (1 - dot_prod_mu_gamma) / (1 - alpha_uq * dot_prod_mu_gamma) //计算alpha时未点击时的S的系数
+          val Q_m_e1_c0 = mu_gamma.map {
+            _ * (1 - alpha_uq) / (1 - alpha_uq * dot_prod_mu_gamma) //计算gamma时A的未点击的S的系数
+          }
+          val Q_m_c0 = gamma_rd.map { gamma_rdm =>
+            1 - alpha_uq * gamma_rdm
+          }.zip(mu_q).map { //zip的用处可以这样平行连接，把两个向量中对应位置进行计算
+            case (x, y) => x * y / (1 - alpha_uq * dot_prod_mu_gamma) //计算gamma时B的未点击的S的系数
+          }
+          //返回的是tuple
+          val alpha_fraction = if (c) {
+            (Q_a1_c1 * cnt, cnt) //点击时系数乘以S值，和该S值（为了之后计算分母）
+          } else {
+            (Q_a1_c0 * cnt, cnt) //未点击时系数乘以S值，和该S值（为了之后计算分母）
+          }
+          //这里返回的是seq，其中每一项是tuple
+          val gamma_fraction = if (c) {
+            Q_m_e1_c1.map{_ * cnt}.zip(Q_m_c1.map {_ * cnt}) //只是返回A,B的值，不像其他进行计算和累计S值（因为后面需要先累加再A/B，不需要计算分母）
+          } else {
+            Q_m_e1_c0.map {_ * cnt}.zip(Q_m_c0.map {_ * cnt}) //只是返回A,B的值，不像其他进行计算和累计S值（因为后面需要先累加再A/B，后面不需要计算分母）
+          }
+          //这里返回的是seq，其中每一项是tuple
+          val mu_fraction = if (c) {
+            Q_m_c1.map { q_m_c => ( q_m_c * cnt, cnt)} //等价于各个意图下查看q中r的情况乘以S值，和该S值（为了之后计算分母）
+          } else {
+            Q_m_c0.map { q_m_c => (q_m_c * cnt, cnt) } //等价于计算gamma时B的未点击的S的系数乘以S值，和该S值（为了之后计算分母）
+          }
+          ((q, u, r, d), (alpha_fraction, gamma_fraction, mu_fraction))
+        }
+  
+        // update alpha
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          ((u, q), af)
+        }.groupBy {_._1}.mapValues { //以此为key，而与此key相同的元素组成value中的list，即返回是一个map：(u, q), List(((u, q) ,af) ...)
+          _.map {_._2}.reduce[(Double, Int)] { case (x, y) => //Double, Int就是上文得到的系数乘以S值，和该S值
+            (x._1 + y._1, x._2 + y._2) //表示将分子_1和分母_2分别累加
+          }
+        }.foreach{ case ((u, q), (num, den)) =>
+          alpha(u)(q) = num / den //然后更新即可
+        }
+  
+        // update gamma
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          ((r, d), gf)
+        }.groupBy{_._1}.mapValues { //以此为key，而与此key相同的元素组成value中的list，即返回是一个map：(r, d), List(((r, d) ,gf) ...)
+          _.map {_._2}.reduce[Array[(Double, Double)]] { //Double, Double就是上文得到的A,B值，但是因为本身是seq，其中每一项是tuple
+            case (xs, ys) => xs.zip(ys).map { //xs和ys代表seq中的各个tuple，重新组合成_1在一个tuple，_2在一个tuple中
+              case (x, y) => (x._1 + y._1, x._2 + y._2) //表示将分子_1和分母_2分别累加
+            }
+          }
+        }.foreach { case ((r, d), fs) => //其中fs是上面新生成的tuple：(x._1 + y._1, x._2 + y._2)，存储_1,_2的各自之和
+          fs.zipWithIndex.foreach { case ((num, den), m) =>
+            gamma(r)(d)(m) = num / den //然后更新即可
+          }
+        }
+        // update mu
+        updates.map { case ((q, u, r, d), (af, gf, mf)) =>
+          (q, mf)
+        }.groupBy{_._1}.mapValues {
+          _.map{_._2}.reduce[Array[(Double, Int)]]{
+            case (xs, ys) => xs zip ys map {
+              case (x, y) => (x._1 + y._1, x._2 + y._2) //因为对于reduce，匿名函数定义了输出形式就如(x._1 + y._1, x._2 + y._2)
+            }
+          }
+        }.foreach { case (q, fs) =>
+          fs.zipWithIndex.foreach{ case ((num, den), m) =>
+            mu(q)(m) = num / den
+          }
+        }
+      }
+        (alpha, gamma, mu)
+    }
+  ```
+
+
+
+#### 引入intent-确实可以缓解对于浏览形惩罚过于严重的现象，最后的$\alpha$与intent无关
+
+比如0.4,0,8和0.8\*0.4+0.2\*0.8，针对$\alpha$来研究。关键初始值要给其进行计算，**对于intent的预估不能是一样的**。
+
+
+![](picture/ubm.png)
+
+##### 引入变异系数来做，结合android的曝光6个，就选择小于6个的一般目标较明确，采用所有的最小值，利用播放量前6位的来计算（对歌手名和歌曲名进行聚合，不包含版本）。
+
+变异系数：$c_{v} = \frac {\sigma }{\mu } $
+其中$\sigma$表示该组数据的标准差，$\mu$表示该组数据的均值。
+该变异系数的取值范围为$[ 0,\sqrt{n-1} ]$，其中$n$为数组中的数据个数。
+
+
+
+### [贝叶斯推断](http://noahsnail.com/2018/05/17/2018-05-17-%E8%B4%9D%E5%8F%B6%E6%96%AF%E4%BC%B0%E8%AE%A1%E3%80%81%E6%9C%80%E5%A4%A7%E4%BC%BC%E7%84%B6%E4%BC%B0%E8%AE%A1%E3%80%81%E6%9C%80%E5%A4%A7%E5%90%8E%E9%AA%8C%E6%A6%82%E7%8E%87%E4%BC%B0%E8%AE%A1/ )
+
+好文，讲得很好，已经备份到了rank的picture中。
+
+![](picture/贝叶斯估计、最大似然估计、最大后验概率估计.png)
 
 
 
