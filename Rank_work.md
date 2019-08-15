@@ -5,40 +5,25 @@
 ### 思索
 
 - **~~先搞定贝叶斯平滑对ctr的修正，应用到relevance~~，~~关于intent的不行先用去除热门歌手的query~~，然后再用构造方法构造训练集**。在ubm论文索引中使用"smoothing "click model""
-
 - 以CTR为基础，为什么不直接用CTR排序呢，这是因为一些新的项目或是一些新的query时，那就没法用CTR数据了，只能用这个模型进行预估。另外，有些是用`ctr*a+cvr`进行排序的。
-
 - 为了构建出 <q, p, r-score> 的数值 pair 对。能否直接用前面位置（比如前10）的修正过的点击模型吸引力来进行构建呢，这就会避免贝叶斯平滑带来的问题了。即分别准备一个pairwise和一个pointwise数据集。
-
 - 预估用户对每条资讯的偏好程度，一般以点击率衡，在很多场合下排序学习（ltr）就等同于点击率预估。J因为可能有时候业务需要用cvr来进行排序。所以CTR的方法都能用，但是难点在于数据集的构建。因为对于不同query下，不能用总体ctr，曝光也不一致。
-
 - 可以考虑先用LR或者是树模型lightgbm或者lambdarank，有证据表明**xgb和wide&deep值得学习，所以考虑lightgbm和wide&deep**。。。。注意补充上交叉特征，并且可解释。关键先把数据构建完。。。避免稀疏。所有特征按类型划分为离散型、连续型、向量型三种类型。如item类别就是一个离散型特征、item ctr就是一个连续性特征、标题向量就是一个向量型特征。对于连续值我们部分参考youtube wide & deep论文中的等频归一化方法，简单来说加入ctr特征需要等屏成10个特征，即将ctr值按照分布取其10等分点，这10等分点就定义了10个区间，每个区间的样本数都占10%。 我们没有使用bagof word模型来表示标题，因为这非常稀疏，而是采用标题中关键词的word2vec向量组合生成标题表示，使用词向量来表示标题极大减少了特征规模，实现上比较方便。标题向量同时需要归一化成单位向量，单位向量的余弦相似度即两个向量的内积，这个优化显著提高了ltr在线模块的性能。**J可能不需要使用向量特征，毕竟需要重新训练而已，并且不像搜索引擎一样需要很多的召回，还是严格模式。**
-
 - 部署：hive和reddit都有特征存储。使用一天的训练数据的情况下，整个特征空间规模约为30万维左右。我们使用N-2天前的日志做训练，N-1天前的日志做评估，需保证两部分日志的用户群体是一致的。我们采用1500万条样本做训练，300万条样本做评估。J在我这里还不需要利用时间上面进行训练，因为不进行个性化处理。
-
 - 特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。
-
 - 构建样本时**J自己的想法**，对于点击样本，如果都前后两个都点击了，则不计算pair；对于未点击样本，并不是指未点击，而是不考虑点击而已。~~就算两个样本中有矛盾，这也不要紧，因为就是要把loss降低而已。所以要对热门的都进行计算~~**感觉还是不能矛盾，按照PPT的思路就是先用总体ctr生成pair（曝光的行为之前的，可以考虑不用贝叶斯平滑或者用贝叶斯平滑两者比较）（考虑相同名称的取最高值），~~然后对于单个行为时的具体行为，将不符合的去除，这样就避免矛盾了。最后再对同一query下进行set，去除重复的，这里到时候看看数据集要不要去除重复，因为合并的话其实回到单个行为意义就不打大了，毕竟肯定又是和原来的一样了。J我想到一点将各个pv中得到的A,B,1聚合起来，比如有矛盾的A,B,0,然后统计数量，毕竟不存在的不出现。最后如果有0，就把他改正过来变成1~~。** **<u>淘宝的数据利用是对每个pv的，因为每个用户不一样，所以用户id特征值不一样，J对于不同时间的可以合并起来，而我们这里似乎不用个性化了，就直接使用聚合即可，不用再返回到单独pv了，或者就回到单独pv，不过就是重复即可，等于是让其更重要</u>**
-
 - 可解释功能待做，因为独立不影响。
-
 - [From RankNet to LambdaRank to LambdaMART: An Overview](https://pdfs.semanticscholar.org/0df9/c70875783a73ce1e933079f328e8cf5e9ea2.pdf) 好好看看
-
 - [A Novel Algorithm for Unbiased Learning to Rank ](https://arxiv.org/abs/1809.05818) 也看看点击模型在其中的用途
-
 - [Unbiased Learning-to-Rank with Biased Feedback](https://www.ijcai.org/proceedings/2018/0738.pdf) 也看看电机模型在其中的用途
-
 - 把算法详解中好好看看。**先搞清楚构建数据集，然后慢慢看算法原理，可以看代码理解原理。[比如这个](**<https://github.com/cnkuangshi/LightCTR> **)**
-
 - **<u>用点击模型计算相关度时，要么使用改进过的点击模型浏览，要么使用直接用播放来代替或用大的贝叶斯平滑代替，对于歌手名来说，可以考虑用分布情况，分布很散，说明确实是浏览类型。</u>~~亦或者直接在ltr算法中传入关键字类型，从而让算法判断得到当这类算法时，就不用这么算了，不能用这个方法，标注还是不一样的~~**。**<u>可以考虑对于贝叶斯平滑低值附近的就不考虑了，因为太少了。</u>**
-
 - "wide&deep"OR"wide deep"OR"wide and deep" "learning to rank"OR"ltr"没搜到，只说[可以这么干](https://zhuanlan.zhihu.com/p/53110408)
-
 - 从论文中得知**ubm是使用em+最大似然估计，而我们可以考虑使用em+最大后验概率**，比如在下文的抛硬币的实验中假设只有一次和两次正面实验，$\theta, \theta^2$，那么利用最大似然概率，结果就是1，而利用最大后验概率，计算$100\theta^2-50\theta-1=0, 100\theta^2-50\theta-2=0$，得到结果为$0.519, 0.537$
-
+- 未来可以考虑在ltr基础上融合个人信息，[如此代码](https://github.com/QingyaoAi/Deep-Listwise-Context-Model-for-Ranking-Refinement )
 - **clickmodels的方法是不对的，他们的intent是对图像等verticle更感兴趣**，而非浏览和寻找，还是看回UBM的论文和scala版的ubm。而intent这么操作：引入变异系数来做，结合android的曝光6个，就选择小于6个的一般目标较明确，采用所有的最小值，利用播放量前6位的来计算（对歌手名和歌曲名进行聚合，不包含版本）思路清晰了，就是利用这段代码去进行更改：
 
-- ```scala
+```scala
     def train(sessions: Seq[(Int, Seq[Int], Seq[Boolean])], maxIter: Int)= {
       val data = sessions.flatMap { case (q, url, click) =>
         val distance = click2distance(click)
@@ -88,7 +73,7 @@
           }
           ((q, u, r, d), (alpha_fraction, gamma_fraction, mu_fraction))
         }
-  
+      
         // update alpha
         updates.map { case ((q, u, r, d), (af, gf, mf)) =>
           ((u, q), af)
@@ -99,7 +84,7 @@
         }.foreach{ case ((u, q), (num, den)) =>
           alpha(u)(q) = num / den //然后更新即可
         }
-  
+      
         // update gamma
         updates.map { case ((q, u, r, d), (af, gf, mf)) =>
           ((r, d), gf)
@@ -131,7 +116,8 @@
       }
         (alpha, gamma, mu)
     }
-  ```
+```
+
 
 - ![](picture/ubm-intent.png)
 
@@ -194,9 +180,9 @@
 
 在得到相关度数据和特征数据后，就可以根据 LambdaMART 训练数据的格式（如下所示），构建完整的训练数据集。每一行代表一个训练数据，项与项之间用空格分隔，其中 \<target> 是相关性得分，\<qid> 是每个 query 的序号，\<feature> 是特征项的编号，\<value> 是对应特征项归一化后的数值，\<info> 是注释项，不影响训练结果。
 
-```
+  ```
 <target> qid:<qid> <feature>:<value> <feature>:<value> ... <feature>:<value> # <info>
-```
+  ```
 
 图 3 表示项目中使用的实际训练数据（这里选取了其中 10 个特征作为示例，# 后面可以增加 Query 和商品名称，方便分析时的查看）：
 
@@ -581,7 +567,7 @@ $$SmoothCTR = \frac{(α + CurrentC - 1)}{( α + β + CurrentI -2)}$$
 - **阶段总结**：针对参数，需要选一个值，使得损失函数最小，即对某广告的点击率而言，需要预估一个点击率，使得对于发生的样本而言，损失函数最小。**发现用后验分布的期望**即可，就是上面那个公式，有C和I加入。
 - **阶段总结矩估计**：现在问题聚焦到怎么预估$\alpha$和$\beta$，然后就能根据点击情况和曝光情况计算出贝叶斯平滑后的值了。方法是将所有广告的点击率进行计算后（看做很多独立的样本），取均值和方差，然后让总体的原点矩与样本的原点矩相等，因为对于点击率参数其总体的Beta分布中，可以计算得到，E(x) = α / (α+β)，D(x) = αβ / (α+β)2(α+β+1)，解出参数$\alpha$和$\beta$。**J我可以考虑对于同一query下所有的歌曲或者所有query，进行计算。**
 
-```python
+​```python
         self.alpha = (mean+0.000001) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
         #self.beta = (1-mean)*(mean*(1-mean)/(var+0.000001)-1)
         self.beta = (1.000001 - mean) * ((mean+0.000001) * (1.000001 - mean) / (var+0.000001) - 1)
@@ -589,7 +575,7 @@ $$SmoothCTR = \frac{(α + CurrentC - 1)}{( α + β + CurrentI -2)}$$
 
 
 
-```python
+​```python
 
 #!/usr/bin/python
 # coding=utf-8
@@ -767,7 +753,7 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
           }
           ((q, u, r, d), (alpha_fraction, gamma_fraction, mu_fraction))
         }
-  
+      
         // update alpha
         updates.map { case ((q, u, r, d), (af, gf, mf)) =>
           ((u, q), af)
@@ -778,7 +764,7 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
         }.foreach{ case ((u, q), (num, den)) =>
           alpha(u)(q) = num / den //然后更新即可
         }
-  
+      
         // update gamma
         updates.map { case ((q, u, r, d), (af, gf, mf)) =>
           ((r, d), gf)
@@ -810,6 +796,7 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
       }
         (alpha, gamma, mu)
     }
+    ```
   ```
 
 
@@ -896,3 +883,4 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
 若果然如此，正样本率天然就低于1/3. 
 
 当前训练集+验证集统计正样本率35%～40%之间，与上述推测略有差异
+  ```
