@@ -1,0 +1,407 @@
+import java.io.File
+
+import org.apache.spark.SparkContext
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, Row, SparkSession}
+
+import scala.reflect.runtime.universe._
+import org.apache.spark.sql.functions._
+/**
+  *
+  * author: jomei
+  * date: 2019/2/14 18:02
+  */
+object UBM {
+  def main(args: Array[String]): Unit = {
+    //====================================================================
+    //1)connect to cluster
+    val warehouseLocation = new File("spark-warehouse").getAbsolutePath
+    val spark = SparkSession
+      .builder()
+      .appName("Click Model")
+      .config("spark.sql.warehouse.dir", warehouseLocation)
+      .enableHiveSupport()
+      .getOrCreate()
+    import spark.implicits._
+    val sc: SparkContext = spark.sparkContext
+    spark.sparkContext.setLogLevel("ERROR")
+
+    //====================================================================
+    //2)initial variable
+    val date_start = args(0)
+    val date_end = args(1)
+    val bayes = args(2).toInt
+    val datatable = args(3)
+    val thisdatatable = args(4)
+    val space = args(5).toDouble
+    val rank_click = args(6).toInt
+    val prior_position =args(7).toDouble
+    val round_bit = args(8).toInt
+    val gamma_variable = args(9)
+
+    println ("parameter:")
+    println ("date_start:" + date_start)
+    println ("date_end:" + date_end)
+    println ("bayes:" + bayes)
+    println ("datatable:" + datatable)
+    println ("thisdatatable:" + thisdatatable)
+    println ("space:" + space)
+    println ("rank_click" + rank_click)
+    println ("prior_position" + prior_position)
+    println ("round_bit" + round_bit)
+    println ("gamma_variable" + gamma_variable)
+
+    //====================================================================
+    //3)acquire the data between date_start and date_end of datatable_song
+    val sql_song_read= "select q, u, r, d, c, s, cnt, alpha_numerator, alpha_denominator, gamma_numerator, gamma_denominator, choric_singer, songname from "+s"$datatable"+"_song where cdt between "+s"'$date_start' and '$date_end'"
+    val df_song_read = spark.sql(sql_song_read)
+    df_song_read.persist()
+    val min_alpha = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator")).withColumn("alpha", $"numerator"/$"denominator").agg(min("alpha")).first.getDouble(0)
+
+    val w_average_alpha = Window.partitionBy("q").orderBy(desc("denominator"))
+    val df_average_alpha = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("alpha", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha, Seq("alpha")).withColumn("rank_alpha", rank().over(w_average_alpha)).filter($"rank_alpha" <=bayes).groupBy("q").agg(min("alpha").alias("mean_alpha"))
+    //use avg instead of min, will produce higher mean_alpha to make yiluzhixia bottom
+    //val w = Window.partitionBy("q")
+    //val w_average_nums = Window.partitionBy("q").orderBy(desc("local"))
+    //val df_average_nums = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("rank_local", rank().over(w_average_nums)).filter($"rank_local" <=bayes).groupBy("q").agg(avg("local").alias("mean_nums"))
+    //we adjust local to search, cause local is smaller than search
+    val w_average_nums = Window.partitionBy("q").orderBy(desc("click"))
+    val df_average_nums = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click")).na.fill(0, Seq("click")).withColumn("rank_click", rank().over(w_average_nums)).filter($"rank_click" <=bayes).groupBy("q").agg(avg("click").alias("mean_nums"))
+
+    //.withColumn("max_local", max("local").over(w))
+
+    val df_average = df_average_alpha.as("d1").join(df_average_nums.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_nums")
+
+    //val df_result = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).as("d1").join(df_average.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha, $"mean_alpha"-space).otherwise(min_alpha)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha, Seq("alpha_search")).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct")
+    val df_result = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("click")).na.fill(0, Seq("local")).as("d1").join(df_average.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha, $"mean_alpha"-space).otherwise(min_alpha)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha, Seq("alpha_search")).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "click", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct")
+
+    df_result.createOrReplaceTempView("result_data")
+
+    val sql_result_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_result
+(
+q string,
+u string,
+choric_singer string,
+songname string,
+numerator double,
+denominator double,
+local double,
+click double,
+mean_nums double,
+mean_alpha double,
+alpha double,
+alpha_search double,
+alpha_direct double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_result_create)
+
+    val sql_result_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_result PARTITION(cdt='$date_end') select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct from result_data
+"""
+
+    spark.sql(sql_result_save)
+
+    //rank
+    val sql_result_read= s"select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct from "+s"$thisdatatable"+s"_result where cdt = '$date_end'"
+    val df_result_read = spark.sql(sql_result_read)
+
+    val w_sum_u_clicks = Window.partitionBy("u")
+    val w_sum_q_clicks = Window.partitionBy("q")
+    val df_clicks = df_result_read.withColumn("u_clicks", sum("click").over(w_sum_u_clicks)).withColumn("q_clicks", sum("click").over(w_sum_q_clicks))
+
+    val w_rank_alpha = Window.partitionBy("q").orderBy(desc("alpha"), desc("denominator"))
+    val w_rank_click = Window.partitionBy("q").orderBy(desc("u_clicks"), desc("denominator"))
+    val df_rank = df_clicks.withColumn("rank", when($"q_clicks" > rank_click, rank().over(w_rank_alpha)).otherwise(rank().over(w_rank_click)))
+    //发现有些歌曲未被点击，就不会被召回，比如潘长江。中的37779129没有被点击过就不会出现。
+    df_rank.createOrReplaceTempView("rank_data")
+
+    val sql_rank_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_rank
+(
+q string,
+u string,
+choric_singer string,
+songname string,
+numerator double,
+denominator double,
+local double,
+click double,
+mean_nums double,
+mean_alpha double,
+alpha double,
+alpha_search double,
+alpha_direct double,
+u_clicks double,
+q_clicks double,
+rank integer
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_rank_create)
+
+    val sql_rank_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_rank PARTITION(cdt='$date_end') select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct, u_clicks, q_clicks, rank from rank_data
+"""
+    spark.sql(sql_rank_save)
+
+    //position donot deal with s === 1, cause s =!= 1 we return 0
+    //for the position, we use the overall to count mean
+    //val sumNum =  df_song_read.agg(sum("gamma_numerator")).first.getDouble(0)
+    val sumDen =  df_song_read.agg(sum("gamma_denominator")).first.getDouble(0)
+    val df_position = df_song_read.groupBy("r", "d").agg(sum("gamma_numerator").alias("numerator"), sum("gamma_denominator").alias("denominator")).withColumn("gamma", (lit(prior_position *sumDen) + $"numerator")/(lit(sumDen) + $"denominator"))
+    df_position.createOrReplaceTempView("position_data")
+
+    val sql_position_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_position
+(
+r int,
+d int,
+numerator double,
+denominator double,
+gamma double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_position_create)
+
+    val sql_position_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_position PARTITION(cdt='$date_end') select r, d, numerator, denominator, gamma from position_data
+"""
+
+    spark.sql(sql_position_save)
+
+    df_song_read.unpersist()
+    //====================================================================
+    //update the position
+    val sql_song_new_read= "select q, u, r, d, c, s, cnt, alpha_numerator, alpha_denominator, gamma_numerator, gamma_denominator, choric_singer, songname from "+s"$datatable"+"_song_new where cdt between "+s"'$date_start' and '$date_end'"
+    val df_song_new_read = spark.sql(sql_song_new_read)
+    df_song_new_read.persist()
+    val min_alpha_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator")).withColumn("alpha", $"numerator"/$"denominator").agg(min("alpha")).first.getDouble(0)
+
+    val w_average_alpha_new = Window.partitionBy("q").orderBy(desc("denominator"))
+    val df_average_alpha_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("alpha", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha_new, Seq("alpha")).withColumn("rank_alpha", rank().over(w_average_alpha_new)).filter($"rank_alpha" <=bayes).groupBy("q").agg(min("alpha").alias("mean_alpha"))
+    //use avg instead of min, will produce higher mean_alpha to make yiluzhixia bottom
+    //val w = Window.partitionBy("q")
+    // val w_average_nums_new = Window.partitionBy("q").orderBy(desc("local"))
+    // val df_average_nums_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("rank_local", rank().over(w_average_nums_new)).filter($"rank_local" <=bayes).groupBy("q").agg(avg("local").alias("mean_nums"))
+    //we adjust local to search, cause local is smaller than search
+    val w_average_nums_new = Window.partitionBy("q").orderBy(desc("click"))
+    val df_average_nums_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click")).na.fill(0, Seq("click")).withColumn("rank_click", rank().over(w_average_nums_new)).filter($"rank_click" <=bayes).groupBy("q").agg(avg("click").alias("mean_nums"))
+
+    //.withColumn("max_local", max("local").over(w))
+
+    val df_average_new = df_average_alpha_new.as("d1").join(df_average_nums_new.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_nums")
+
+    //val df_result = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).as("d1").join(df_average.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha, $"mean_alpha"-space).otherwise(min_alpha)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha, Seq("alpha_search")).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct")
+    val df_result_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("click")).na.fill(0, Seq("local")).as("d1").join(df_average_new.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha_new, $"mean_alpha"-space).otherwise(min_alpha_new)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha_new, Seq("alpha_search")).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "click", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct")
+
+    df_result_new.createOrReplaceTempView("result_new_data")
+
+    val sql_result_new_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_result_new
+(
+q string,
+u string,
+choric_singer string,
+songname string,
+numerator double,
+denominator double,
+local double,
+click double,
+mean_nums double,
+mean_alpha double,
+alpha double,
+alpha_search double,
+alpha_direct double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_result_new_create)
+
+    val sql_result_new_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_result_new PARTITION(cdt='$date_end') select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct from result_new_data
+"""
+
+    spark.sql(sql_result_new_save)
+
+    //rank
+    val sql_result_new_read= s"select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct from "+s"$thisdatatable"+s"_result where cdt = '$date_end'"
+    val df_result_new_read = spark.sql(sql_result_new_read)
+
+    val w_sum_u_clicks_new = Window.partitionBy("u")
+    val w_sum_q_clicks_new = Window.partitionBy("q")
+    val df_clicks_new = df_result_new_read.withColumn("u_clicks", sum("click").over(w_sum_u_clicks_new)).withColumn("q_clicks", sum("click").over(w_sum_q_clicks_new))
+
+    val w_rank_alpha_new = Window.partitionBy("q").orderBy(desc("alpha"), desc("denominator"))
+    val w_rank_click_new = Window.partitionBy("q").orderBy(desc("u_clicks"), desc("denominator"))
+    val df_rank_new = df_clicks_new.withColumn("rank", when($"q_clicks" > rank_click, rank().over(w_rank_alpha_new)).otherwise(rank().over(w_rank_click_new)))
+    //发现有些歌曲未被点击，就不会被召回，比如潘长江。中的37779129没有被点击过就不会出现。
+    df_rank_new.createOrReplaceTempView("rank_new_data")
+
+    val sql_rank_new_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_rank_new
+(
+q string,
+u string,
+choric_singer string,
+songname string,
+numerator double,
+denominator double,
+local double,
+click double,
+mean_nums double,
+mean_alpha double,
+alpha double,
+alpha_search double,
+alpha_direct double,
+u_clicks double,
+q_clicks double,
+rank integer
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_rank_new_create)
+
+    val sql_rank_new_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_rank_new PARTITION(cdt='$date_end') select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct, u_clicks, q_clicks, rank from rank_new_data
+"""
+    spark.sql(sql_rank_new_save)
+
+    //position donot deal with s === 1, cause s =!= 1 we return 0
+    //for the position, we use the overall to count mean
+    //val sumNum =  df_song_read.agg(sum("gamma_numerator")).first.getDouble(0)
+    val sumDen_new = df_song_new_read.agg(sum("gamma_denominator")).first.getDouble(0)
+    val avgDen_new = df_song_new_read.groupBy("r", "d").agg(sum("gamma_denominator").alias("denominator")).agg(avg("denominator")).first.getDouble(0)
+    val maxDen_new = df_song_new_read.groupBy("r", "d").agg(sum("gamma_denominator").alias("denominator")).agg(max("denominator")).first.getDouble(0)
+
+    val df_position_new = df_song_new_read.groupBy("r", "d").agg(sum("gamma_numerator").alias("numerator"), sum("gamma_denominator").alias("denominator")).withColumn("gamma_origin", $"numerator"/$"denominator").withColumn("gamma_max", (lit(maxDen_new*prior_position) + $"numerator")/(lit(maxDen_new) + $"denominator")).withColumn("gamma_avg", (lit(avgDen_new*prior_position) + $"numerator")/(lit(avgDen_new) + $"denominator")).withColumn("gamma_sum", (lit(sumDen_new*prior_position) + $"numerator")/(lit(sumDen_new) + $"denominator"))
+    df_position_new.createOrReplaceTempView("position_new_data")
+
+    val sql_position_new_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_position_new_notused
+(
+r int,
+d int,
+numerator double,
+denominator double,
+gamma_origin double,
+gamma_max double,
+gamma_avg double,
+gamma_sum double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_position_new_create)
+
+    val sql_position_new_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_position_new_notused PARTITION(cdt='$date_end') select r, d, numerator, denominator, gamma_origin, gamma_max, gamma_avg, gamma_sum from position_new_data
+"""
+
+    spark.sql(sql_position_new_save)
+
+    df_song_new_read.unpersist()
+    //====================================================================
+    //update the position of three days combine
+    val sql_sessions_new_combine_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname from "+s"$datatable"+s"_sessions where cdt between "+s"'$date_start' and '$date_end'"
+    val df_sessions_new_combine_read = spark.sql(sql_sessions_new_combine_read).groupBy("q", "u", "r", "d", "c", "s", "choric_singer", "songname").agg(sum("cnt").alias("cnt"))
+    df_sessions_new_combine_read.persist()
+
+    val df_alpha = df_sessions_new_combine_read.select("q","u").distinct().withColumn("qu", struct(col("q"), col("u"))).withColumn("alpha", lit(0.5)) //just like tuple
+
+    val sql_position_new_read= s"select r, d, numerator, denominator, gamma_origin, gamma_max, gamma_avg, gamma_sum from "+s"$thisdatatable"+s"_position_new where cdt = '$date_end'"
+    val df_position_read = spark.sql(sql_position_new_read)
+
+    val gamma_new = df_position_read.withColumn("rd", struct(col("r"), col("d"))).withColumn("gamma_new", round(col(s"$gamma_variable"), round_bit)).select(col("rd"), col("gamma_new")).as[((Int, Int), Double)].collect.toMap
+    var gamma_br_new = sc.broadcast(gamma_new)
+    val update_new = udf{(r: Int, d: Int, c: Boolean, s: Int, cnt: Long, alpha_uq: Double) =>
+      val gamma_rd = gamma_br_new.value(r,d)
+      if (s == 1){
+        if (!c)
+          ((alpha_uq * (1 - gamma_rd) / (1 - alpha_uq * gamma_rd)) * cnt, 1.0 * cnt, (gamma_rd * (1 - alpha_uq) / (1 - alpha_uq * gamma_rd)) * cnt, 1.0 * cnt)
+        else
+          (1.0 * cnt, 1.0 * cnt, 1.0 * cnt, 1.0 * cnt) //if all cnt it will be Long, add 1.0, it will declare Double
+      }
+      else{
+        if (!c)
+          ((alpha_uq * (1 - gamma_rd) / (1 - alpha_uq * gamma_rd)) * cnt, 1.0 * cnt, 0.0, 0.0)
+        else
+          (1.0 * cnt, 1.0 * cnt, 0.0, 0.0) //if all cnt it will be Long, add 1.0, it will declare Double
+      }
+    }
+
+    val df_song_new_combine = df_sessions_new_combine_read.as("d1").join(df_alpha.as("d2"), ($"d1.q" === $"d2.q") && ($"d1.u" === $"d2.u")).select($"d1.*", $"d2.alpha").withColumn("update", update_new($"r", $"d", $"c", $"s", $"cnt", $"alpha")).withColumn("alpha_numerator", $"update._1").withColumn("alpha_denominator", $"update._2").withColumn("gamma_numerator", $"update._3").withColumn("gamma_denominator", $"update._4").select($"q", $"u", $"r", $"d", $"c", $"s", $"cnt", $"alpha_numerator", $"alpha_denominator", $"gamma_numerator", $"gamma_denominator", $"choric_singer", $"songname")
+    df_song_new_combine.persist()
+
+    val min_alpha_new_combine = df_song_new_combine.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator")).withColumn("alpha", $"numerator"/$"denominator").agg(min("alpha")).first.getDouble(0)
+
+    val w_average_alpha_new_combine = Window.partitionBy("q").orderBy(desc("denominator"))
+    val df_average_alpha_new_combine = df_song_new_combine.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("alpha", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha_new_combine, Seq("alpha")).withColumn("rank_alpha", rank().over(w_average_alpha_new_combine)).filter($"rank_alpha" <=bayes).groupBy("q").agg(min("alpha").alias("mean_alpha"))
+    //use avg instead of min, will produce higher mean_alpha to make yiluzhixia bottom
+    //val w = Window.partitionBy("q")
+    // val w_average_nums_new = Window.partitionBy("q").orderBy(desc("local"))
+    // val df_average_nums_new = df_song_new_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).withColumn("rank_local", rank().over(w_average_nums_new)).filter($"rank_local" <=bayes).groupBy("q").agg(avg("local").alias("mean_nums"))
+    //we adjust local to search, cause local is smaller than search
+    val w_average_nums_new_combine = Window.partitionBy("q").orderBy(desc("click"))
+    val df_average_nums_new_combine = df_song_new_combine.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click")).na.fill(0, Seq("click")).withColumn("rank_click", rank().over(w_average_nums_new_combine)).filter($"rank_click" <=bayes).groupBy("q").agg(avg("click").alias("mean_nums"))
+
+    //.withColumn("max_local", max("local").over(w))
+
+    val df_average_new_combine = df_average_alpha_new_combine.as("d1").join(df_average_nums_new_combine.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_nums")
+
+    //val df_result = df_song_read.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("local")).as("d1").join(df_average.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha, $"mean_alpha"-space).otherwise(min_alpha)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha, Seq("alpha_search")).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct")
+    val df_result_new_combine = df_song_new_combine.groupBy("q", "u", "choric_singer", "songname").agg(sum("alpha_numerator").alias("numerator"), sum("alpha_denominator").alias("denominator"), sum(when($"s" =!= 0 && $"c" === true, $"alpha_denominator")).as("click"), sum(when($"s" === 0, $"alpha_denominator")).as("local")).na.fill(0, Seq("click")).na.fill(0, Seq("local")).as("d1").join(df_average_new_combine.as("d2"),  $"d1.q"===$"d2.q", "left").select($"d1.*", $"d2.mean_alpha", $"d2.mean_nums").withColumn("prior_alpha", when($"mean_alpha"-space>min_alpha_new_combine, $"mean_alpha"-space).otherwise(min_alpha_new_combine)).withColumn("alpha", ($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local")).withColumn("alpha_search", ($"numerator" - $"local" )/($"denominator" - $"local")).na.fill(min_alpha_new_combine, Seq("alpha_search")).withColumn("alpha_v", when(($"denominator"- $"local") > $"mean_nums", $"alpha_search").otherwise(($"mean_nums"*$"prior_alpha" + $"numerator" - $"local" )/($"mean_nums" + $"denominator" - $"local"))).withColumn("alpha_direct", ($"numerator")/($"denominator")).select("q", "u", "choric_singer", "songname", "numerator", "denominator", "local", "click", "mean_nums", "mean_alpha", "alpha", "alpha_search", "alpha_direct", "alpha_v")
+
+    df_result_new_combine.createOrReplaceTempView("result_new_combine_data")
+
+    val sql_result_new_combine_create= """
+create table if not exists """+s"""$thisdatatable"""+"""_result_new_combine_v
+(
+q string,
+u string,
+choric_singer string,
+songname string,
+numerator double,
+denominator double,
+local double,
+click double,
+mean_nums double,
+mean_alpha double,
+alpha double,
+alpha_search double,
+alpha_direct double,
+alpha_v double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_result_new_combine_create)
+
+    val sql_result_new_combine_save= s"""
+INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_result_new_combine_v PARTITION(cdt='$date_end') select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, alpha, alpha_search, alpha_direct, alpha_v from result_new_combine_data
+"""
+
+    spark.sql(sql_result_new_combine_save)
+
+    df_sessions_new_combine_read.unpersist()
+    df_song_new_combine.unpersist()
+    //10)end
+    spark.stop() //to avoid ERROR LiveListenerBus: SparkListenerBus has already stopped! Dropping event SparkListenerExecutorMetricsUpdate
+
+  }
+}
