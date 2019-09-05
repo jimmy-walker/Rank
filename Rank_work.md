@@ -19,7 +19,8 @@
 - 把算法详解中好好看看。**先搞清楚构建数据集，然后慢慢看算法原理，可以看代码理解原理。[比如这个](**<https://github.com/cnkuangshi/LightCTR> **)**
 - **<u>用点击模型计算相关度时，要么使用改进过的点击模型浏览，要么使用直接用播放来代替或用大的贝叶斯平滑代替，对于歌手名来说，可以考虑用分布情况，分布很散，说明确实是浏览类型。</u>~~亦或者直接在ltr算法中传入关键字类型，从而让算法判断得到当这类算法时，就不用这么算了，不能用这个方法，标注还是不一样的~~**。**<u>可以考虑对于贝叶斯平滑低值附近的就不考虑了，因为太少了。</u>**
 - "wide&deep"OR"wide deep"OR"wide and deep" "learning to rank"OR"ltr"没搜到，只说[可以这么干](https://zhuanlan.zhihu.com/p/53110408)
-- 从论文中得知**ubm是使用em+最大似然估计，而我们可以考虑使用em+最大后验概率**，比如在下文的抛硬币的实验中假设只有一次和两次正面实验，$\theta, \theta^2$，那么利用最大似然概率，结果就是1，而利用最大后验概率，计算$100\theta^2-50\theta-1=0, 100\theta^2-50\theta-2=0$，得到结果为$0.519, 0.537$
+- 从论文中得知**ubm是使用em+最大似然估计，而我们可以考虑使用em+最大后验概率**，比如在下文的抛硬币的实验中假设只有一次和两次正面实验，$\theta, \theta^2$，那么利用最大似然概率，结果就是1，而利用最大后验概率，计算$100\theta^2-50\theta-1=0, 100\theta^2-50\theta-2=0$，得到结果为$0.519, 0.537$。目前经过研究得到了相关的最大后验概率基于ubm的解法，J其实就是类似之前的贝叶斯。。。不过着眼于概率选定和初始值，目前很棘手，没有通论，所以考虑使用聚类，分成两类，这样就剔除了底层的那些干扰项，保证了前述项不去进行后验概率，另外概率选定，可用计算公式。可以考虑用昨天的平均值减去1个或2个标准差。。。**并且尝试修改用全部曝光而非点击最后一位，这样等于是削弱了第一个和第二个之间的分母差距。**
+- **另外看了BBM，其核心就是不用em算法，用类似贝叶斯的推断，计算后验概率，然后进行积分计算，好处是稳定，不容易被迭代的次数给左右，坏处是花时间不一定有效果，需要看积分公式**。
 - 未来可以考虑在ltr基础上融合个人信息，[如此代码](https://github.com/QingyaoAi/Deep-Listwise-Context-Model-for-Ranking-Refinement )
 - **clickmodels的方法是不对的，他们的intent是对图像等verticle更感兴趣**，而非浏览和寻找，还是看回UBM的论文和scala版的ubm。而intent这么操作：引入变异系数来做，结合android的曝光6个，就选择小于6个的一般目标较明确，采用所有的最小值，利用播放量前6位的来计算（对歌手名和歌曲名进行聚合，不包含版本）思路清晰了，就是利用这段代码去进行更改：
 
@@ -119,7 +120,7 @@
 ```
 
 
-- ![](picture/ubm-intent.png)
+![](picture/ubm-intent.png)
 
 
 ###文章浏览
@@ -180,9 +181,9 @@
 
 在得到相关度数据和特征数据后，就可以根据 LambdaMART 训练数据的格式（如下所示），构建完整的训练数据集。每一行代表一个训练数据，项与项之间用空格分隔，其中 \<target> 是相关性得分，\<qid> 是每个 query 的序号，\<feature> 是特征项的编号，\<value> 是对应特征项归一化后的数值，\<info> 是注释项，不影响训练结果。
 
-  ```
+```
 <target> qid:<qid> <feature>:<value> <feature>:<value> ... <feature>:<value> # <info>
-  ```
+```
 
 图 3 表示项目中使用的实际训练数据（这里选取了其中 10 个特征作为示例，# 后面可以增加 Query 和商品名称，方便分析时的查看）：
 
@@ -703,7 +704,7 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
 
 - 就是利用这段代码去进行更改：
 
-- ```scala
+```scala
     def train(sessions: Seq[(Int, Seq[Int], Seq[Boolean])], maxIter: Int)= {
       val data = sessions.flatMap { case (q, url, click) =>
         val distance = click2distance(click)
@@ -796,8 +797,7 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
       }
         (alpha, gamma, mu)
     }
-    ```
-  ```
+```
 
 
 
@@ -883,4 +883,4 @@ $$\begin{align}P(\theta|X) &= \frac{P(X|\theta)P(\theta)}{P(X)}=\frac{P(X|\theta
 若果然如此，正样本率天然就低于1/3. 
 
 当前训练集+验证集统计正样本率35%～40%之间，与上述推测略有差异
-  ```
+
