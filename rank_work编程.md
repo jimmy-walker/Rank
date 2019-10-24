@@ -1,5 +1,27 @@
 # rank_work编程
 
+[TOC]
+
+## 总体思想
+
+目前比之前的rank.md更进一步的是已经确定了算法lambdamart和框架lightgbm。
+
+按照elasticsearch的脚本进行整理训练。[相关说明](#case3) 
+
+两个方案：点击模型和click data。
+
+还差一个特征工程的方法。特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。
+
+需要滤除拦截的。
+
+之后再考虑ubm的改进，比如browsing对吸引力的影响。
+
+之后再考虑ctr使用平滑作为relevance。[相关说明](#ctr（就是根据ctr计算，也同样利用到了归一化）)
+
+之后在考虑 inverse propensity weighting 的问题。<https://github.com/QingyaoAi/Unbiased-Learning-to-Rank-with-Unbiased-Propensity-Estimation> 
+
+之后再考虑合并unbiased rank。
+
 ## click model
 
 ### spark
@@ -54,13 +76,11 @@ songname：歌曲名
 
 ###启动环境
 
-```
-docker run --rm -it --name=lightgbm_notebook -p 8888:8888 -v //c/Users/material:/material lightgbm:jupyter
-#注意windows中只能固定在这个目录：//c/Users/
-进去后再输入
-jupyter notebook  --allow-root
-就会在真实ip的8888处打开，注意使用8个1密码登录
-```
+#### python安装
+
+直接`pip install`即可，浪费了docker安装的时间。。。。
+
+
 
 #### docker安装
 
@@ -279,9 +299,19 @@ LightGBM use the zero-based libsvm file (when pass libsvm file to LightGBM), whi
 
 可见论文From ranknet to lambdarank to lambdamart: An overview ，相关[issue](https://github.com/microsoft/LightGBM/issues/332 )
 
+##### 输入相关分值，会自动计算配对损失，同xgboost
+
+[相关issue](https://github.com/dmlc/xgboost/issues/3915 )，[相关代码](https://github.com/dmlc/xgboost/blob/93f63324e62c9e04269d17bc6505137a18dcc900/src/objective/rank_obj.cc#L41 )，谈到了 enumerate buckets with same label, for each item in the lst, grab another sample randomly。
+
 ###数据来源
 
-[Yahoo](https://webscope.sandbox.yahoo.com/catalog.php?datatype=c&guccounter=1 )
+####[Yahoo](https://webscope.sandbox.yahoo.com/catalog.php?datatype=c&guccounter=1 )
+
+注意query其实就是一个个真实的query。只不过里面的relevance是人工加上去的。这样反应出了位置的情况！！！见论文中描述。
+
+Queries The queries were randomly sampled from the query logs of the Yahoo! search engine. Each query was given a unique identifier. **A frequent query is likely to be sampled several times from the query logs, and each of these replicates has a different identifier**. This was done to ensure that the query distribution in these datasets follows the same distribution as in the query logs: **frequent queries have effectively more weight**. 
+
+数据规模：
 
 Train Val Test Train Val Test
 
@@ -312,7 +342,44 @@ index 是有顺序的索引，通常是连续的整数。就是指特征编号�
 
 value 就是特征值，用来 train 的数据，通常是一堆实数组成。
 
-### 载入数据
+####[MQ2008](http://www.bigdatalab.ac.cn/benchmark/bm/dd?data=MQ2008 )
+
+有相关处理的[脚本](https://github.com/dmlc/xgboost/blob/master/demo/rank/trans_data.py )，简而言之，就是分为label：0,1,2三个档次。
+
+=====================================
+   Folds     Training set   Validation set   Test
+
+set
+   Fold1     {S1,S2,S3}
+
+   S4                 S5
+
+   Fold2     {S2,S3,S4}
+
+   S5                 S1
+
+   Fold3     {S3,S4,S5}
+
+   S1                 S2
+
+   Fold4     {S4,S5,S1}
+
+   S2                 S3
+
+   Fold5     {S5,S1,S2}
+
+   S3                 S4
+
+=====================================
+
+Each row is a query-document pair. The first column is relevance label of this pair, the second column is query id, the following columns are features, and
+
+the end of the row is comment about the pair, including id of the document. The larger the relevance label, the more relevant the query-document pair. A
+
+query-document pair is represented by a 46-dimensional feature vector.
+
+
+### 载入数据（J未找到相关说明，但是应该是按照排序列出的数据，越上面越要优化，否则就直接按照最大分数降序排了）
 
 #### sklearn.datasets.load_svmlight_file
 
@@ -334,6 +401,155 @@ Load datasets in the svmlight / libsvm format into sparse CSR matrix
 
 因为不限制输出的范围，对test的输出可能存在负数。将其对同一个query内进行排序即可。[issue](For the ranking, we didn't limit its output range. And you can sort the prediction score (in per query) to get the rank result. )
 
+##xgboost
+
+### 官方demo
+
+<https://github.com/dmlc/xgboost/tree/master/demo/rank> 
+
+### 其他人写的示例程序
+
+<https://www.jianshu.com/p/9caef967ec0a> 
+
+<https://github.com/bigdong89/xgboostExtension> 
+
+其中只有xgboost的ranker有用，feature是无关的，只是取其每棵树内的信息index而已。
+
+### 可将lightgbm转成xgboost
+
+有人提到可以这么转，从而帮助导入到elasticsearch中。
+
+<https://github.com/o19s/elasticsearch-learning-to-rank/issues/150> 
+
+## Elasticsearch
+
+###[插件](https://www.infoq.cn/article/we-are-bringing-learning-to-rank-to-elasticsearch )
+
+- 存储query-dependent feature，支持合并judgement list，从而方便导出数据。
+- 本地训练模型，上传ltr模型，支持xgboost和ranklib。
+- 上传ltr模型后，可以直接用模型对召回的item进行打分。考虑性能可以用BM25进行召回，对topN打分。
+- **judgement list**的生成需要自己生成，推荐资源[视频](https://www.youtube.com/watch?v=JqqtWfZQUTU&list=PLq-odUc2x7i-9Nijx-WfoRMoAfHC9XzTt&index=5 )，[post](https://blog.wikimedia.org/2017/09/19/search-relevance-survey/ )；**特征**需要自己生成，推荐资源[book](https://www.manning.com/books/relevant-search )。
+
+##relevance/judgement list计算
+
+###两种策略：
+#### query不合并，直接采样，从而可能会重复采样，不用样本权重，排序就按照此原有query排序。（J推荐用此策略）
+见yahoo论文中的格式说明。**J可能目前歌手名搜索会有相关性问题，考虑不用这类导航类的搜索词，比如歌手。而相关性则可以考虑直接将总体计算好的相关性，再补到每一个query上。**
+
+#### query合并，取最多出现rank进行排序，若需改变样本权重则另外使用样本权重。
+
+见下方clickmodel的例子研究。
+
+### click model（J推荐尝试，目前根据资料就是根据分值然后归一化为等级，不过具体等级数需要尝试）
+
+####case1
+
+[openliveq的比赛分享](https://github.com/mpkato/openliveq ) 2016年
+
+其中将点击模型作为relevance的预估，其中代码如下。简而言之就是将同一个query下的各个项目的最大值作为归一化分母，然后划分到grade中去，J这里的排序我认为是**按照大多数出现的情况进行rank，因此实际上不会出现同一query，因为query下都已经合并到一个了，通过加权重从而搞定样本权重**。
+
+```python
+    res = ClickModel.estimate(ctrs, sigma=sigma, topk=topk) #得到字典，value为分值，key为query和question的id，如下所示
+    #result[(ctr.query_id, ctr.question_id)] = aprob
+    res_per_q = defaultdict(list)
+    for ids, s in res.items():
+        res_per_q[ids[0]].append((ids, s))
+    for query_id in sorted(res_per_q):
+        scores = [s for ids, s in res_per_q[query_id]]
+        max_score = max(scores) #得到同一query下的最大分值。
+        for ids, score in res_per_q[query_id]:
+            if max_score > 0:
+                score = int(score / max_score * max_grade) # normalization
+            output_file.write("\t".join(list(ids) + [str(score)]) + "\n")
+            
+    @classmethod
+    def estimate(cls, ctrs, sigma=10.0, topk=10):
+        result = {}
+        for ctr in ctrs:
+            if ctr.rank <= topk: 
+                eprob = cls._eprob(ctr.rank, sigma)
+                aprob = min([1.0, ctr.ctr / eprob])
+                result[(ctr.query_id, ctr.question_id)] = aprob
+        return result
+
+    @classmethod
+    def _eprob(cls, rank, sigma):
+        return exp(- float(rank) / sigma)
+```
+
+`Relevance(d_qr) = CTR_qr / exp(- r / sigma)`
+
+where `d_qr` is the `r`-th ranked document for query `q`, `CTR_qr` is the clickthrough rate of `d_qr`, and `sigma` is a parameter. This model assumes that the examination probability only depends on the rank.
+
+而其中[数据格式](http://www.openliveq.net/ )为：
+
+1. Query ID (a query for the question)
+2. Question ID
+3. **Most frequent rank of the question** in a Yahoo! Chiebukuro search result for **the query of Query ID**
+4. Clickthrough rate
+
+#### case2
+
+[wikimedia经验分享](https://wikimedia-research.github.io/Discovery-Search-Test-InterleavedLTR/#) 2017年
+
+*MjoLniR* – our Python and Spark-based library for handling the backend data processing for Machine Learned Ranking at Wikimedia – uses a click-based [Dynamic Bayesian Network](https://en.wikipedia.org/wiki/Dynamic_Bayesian_network) (Chapelle and Zhang [2009](https://wikimedia-research.github.io/Discovery-Search-Test-InterleavedLTR/#ref-DBNclix-2009)) (implemented via [ClickModels](https://github.com/varepsilon/clickmodels) Python library) to create relevance labels for training data fed into [XGBoost](https://en.wikipedia.org/wiki/Xgboost). It is [available as open source](https://github.com/wikimedia/search-MjoLniR). 
+
+但是根本无法查看其代码逻辑怎么跑的，缺少了utilities中的data_pipeline！垃圾。但是估计应该就是和case1一样，定好之后，然后设计了labeled data
+
+#### case3
+
+[elasticsearch分享](https://www.slideshare.net/jettro/combining-machine-learning-and-search-through-learning-to-rank?from_action=save ) 2018年
+
+采用点击模型P33，相关[脚本](https://github.com/o19s/elasticsearch-learning-to-rank/tree/master/demo )为P35，**脚本是直接用了judgement不过仍然很不错按照此教程些写脚本**，得到结果为分级grade(0-4)P36。
+
+最终在其github [issue](https://github.com/o19s/elasticsearch-learning-to-rank/issues/111#issuecomment-348656874)中找到其使用点击模型的方法。
+
+Currently we use `int(prediction*10)` to get a label between 0 and 9. We are still evaluating what the best method to convert the prediction into a label and how many labels should be used. It's a tough problem so we looked at a sampling of results from a few different methods and decided this looked "good enough". 
+
+###Clicks combined with dwell time (time spent on a page) 
+
+[Context Models For Web Search Personalization ](http://www.cs.toronto.edu/~mvolkovs/yandex_kaggle_model.pdf ) 2015年
+
+relevance 0: documents with no clicks or dwell time strictly less than 50 time units 
+
+relevance 1: documents with clicks and dwell time between 50 and 399 time units 
+
+relevance 2: documents with clicks and dwell time of at least 400 time units as well as documents with last click in session 
+
+### click data(就是将点击数据量作为相关度，也不考虑ctr，J我觉得可行，至少保底了)
+[论文](https://arxiv.org/pdf/1809.05818.pdf)中有阐述该方法。
+
+### ctr（就是根据ctr计算，也同样利用到了归一化）
+
+[On Application of Learning to Rank for E-Commerce Search](https://www.researchgate.net/profile/Shubhra_Kanti_Karmaker_Santu/publication/316998625_On_Application_of_Learning_to_Rank_for_E-Commerce_Search/links/59d7cf73458515a5bc1ee532/On-Application-of-Learning-to-Rank-for-E-Commerce-Search.pdf ) 2017年
+
+**文章随机抽取了2.8K个query词，J这意味着可能会有相同的query词，然后利用BM25F得到召回项，此外计算ctr时候滤除小于100的项目，避免震荡**。
+
+**J其实我认为ctr还不如用ubm点击模型呢，因为不点的，ctr给了很大的惩罚，而点击模型则不是。<u>当然ctr有一种平滑方法，可以考虑使用</u>。**
+
+**Our E-Com data set consists of 2.8K randomly selected product search queries**, and a catalog of 5M product/documents1 . **For each query, we retrieved top 120 products using a BM25F** [26] based retrieval algorithm. For each query-document pair (q,d), we then collected statistics on impressions2 (imp(q,d)), clicks (clicks(q,d)), add-to-carts (atc(q,d)), orders (orders(q,d)) and revenue (rev(q,d)) from search logs. Based on these statistics, we then assigned relevance ratings as follows. 
+
+**For each query, we eliminated products for which less than 100 impressions were observed in the search log**, to reduce variance in rate estimates. One can also use alternate smoothing strategies here [13], but since these have not previously been tested on ECom data and we had sucient data available, we decided to simply drop the low impression products/documents. Post the ltering step, we had on average 94.2 documents per query. Each  pair is considered as a single training instance to the LETOR methods. 
+
+
+
+### 搜索策略
+
+####搜索click model, relevance, grade, xgboost等关键字
+"click model" "xgboost"OR"ranklib" "judgment"OR"relevance"
+
+搜索得到关于如何用点击模型进行grade的代码。[case1](#case1) 
+
+拓展到搜索搜狗数据集，没有文章讨论这方面工作。
+
+"click model" relevance "grade"OR"level" normalize "xgboost"OR"ranklib"OR"lightgbm"
+
+找到关于elasticsearch的github代码。[case3](#case3)
+
+基本认为得到了答案。
+
+
+
 ## 项目计划
 
 针对在工业界的经验，**先根据业务场景做提取统计类特征（连续特征）使用gbdt模型快速拿到收益**，然后考虑加入海量离散类特征（比如个性化因素等），使用LR/FM模型进一步提升效果。至于原有的统计类特征可以通过gbdt叶子节点转换成离散特征一并加入到LR/FM中。**这两步估计够迭代优化半年时间了**。
@@ -343,6 +559,10 @@ Load datasets in the svmlight / libsvm format into sparse CSR matrix
 **其实可以先考虑直接这么做，不用管position biased，看下效果，跑通整个流程！**
 
 **然后之后再考虑去除position biased。**
+
+## 问题
+
+本身存在的浏览问题，导致的相关度出现问题。
 
 ## Reference
 
