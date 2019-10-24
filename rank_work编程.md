@@ -8,7 +8,7 @@
 
 按照elasticsearch的脚本进行整理训练。[相关说明](#case3) 
 
-两个方案：点击模型和click data。
+两个方案：点击模型和click data（理解为点击数作为相关度参考） 。[相关说明](#click data(就是将点击数据量作为相关度，也不考虑ctr，J我觉得可行，至少保底了))
 
 还差一个特征工程的方法。特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。
 
@@ -517,7 +517,9 @@ relevance 1: documents with clicks and dwell time between 50 and 399 time units
 relevance 2: documents with clicks and dwell time of at least 400 time units as well as documents with last click in session 
 
 ### click data(就是将点击数据量作为相关度，也不考虑ctr，J我觉得可行，至少保底了)
-[论文](https://arxiv.org/pdf/1809.05818.pdf)中有阐述该方法。
+[论文](https://arxiv.org/pdf/1809.05818.pdf)中有阐述该方法。**其实论文中的意思是点击就是相关的，未点击就是不相关，所以是仅仅聚焦于一次query内的点击与否。那么为了容易进行相关度量化匹配（点击模型中会有量化），我们就采用整体click数作为相关度参考进行排序，等于就是为了拟合出一个函数。**
+
+其实也可以只是两个量化，就是点击为相关，不点击为不相关。先按照上面的走，然后再考虑是否用此方法对比吧。
 
 ### ctr（就是根据ctr计算，也同样利用到了归一化）
 
@@ -569,3 +571,5 @@ relevance 2: documents with clicks and dwell time of at least 400 time units as 
 - [docker容器下配置jupyter notebook](https://blog.csdn.net/leng_yan/article/details/87208363 )
 - [用docker启动一个jupyter notebook](https://www.jianshu.com/p/21d5afc1c079 )
 - [mount from docker](https://superuser.com/a/907953)
+
+[#click data(就是将点击数据量作为相关度，也不考虑ctr，J我觉得可行，至少保底了)]: 
