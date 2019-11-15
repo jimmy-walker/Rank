@@ -97,12 +97,13 @@ where
     and a='3'
     and action='search'
     and fs='有搜索结果'
-    and sct='歌曲'
+    and sct in ('综合', '歌曲')
     and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+""")
 OR
 (dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
     and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
-    and a in ('9697', '10650', '10654')
+    and a in (10650, 10654, 9697, 14301, 14302, 14303)
+    and b in ('搜索结果页-点击单曲播放','搜索结果页-点击加号插播','搜索结果页-下一首播放','搜索结果页-单曲-播放', '搜索结果页-单曲-加号插播', '搜索结果页-单曲-更多-下一首播放')
     and scid_albumid IS NOT NULL
     and CAST(ivar2 AS BIGINT) > 0
     and action='search'
@@ -113,6 +114,7 @@ OR
     and a ='14124'
     and scid_albumid IS NOT NULL
     and action='exposure'
+    and r in ('搜索综合tab页', '搜索单曲tab页')
     and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
     and fo regexp '/搜索/[^/]+/(?:单曲)')
 OR
@@ -123,9 +125,8 @@ OR
     and action='play'
     and trim(fs)<>'播放错误'
     and trim(ivar10)='主动播放'
-    and (trim(reason)<>'1' or reason is null)
     and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
-    and ((trim(sty)='音频' and fo regexp '/搜索/[^/]+/(?:单曲|歌曲)')
+    and ((trim(sty)='音频' and fo regexp '/搜索/[^/]+(/综合)?/(?:单曲|歌曲)')
             or (trim(sty)='视频' and fo regexp '/搜索/[^/]+$')))
 """
 

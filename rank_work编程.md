@@ -10,7 +10,7 @@
 
 两个方案：点击模型和click data（理解为点击数作为相关度参考/还是采用实际点击作为量化，目前考虑后者也可以） 。[相关说明](#click data(就是将点击数据量作为相关度，也不考虑ctr，J我觉得可行，至少保底了))
 
-还差一个特征工程的方法。特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。[相关说明](#还是考虑query与目前召回中的进行对比，从而得到分词结果。必须得分词)
+还差一个特征工程的方法。特征包括：文本特征（如何考察全包含，歌手名，歌曲名），音频质量得分（可以滤除4秒的音乐），收藏数，点赞数，发布时间，评论数，播放数，付费与否（决定于推广与否）等等。[相关说明](#还是考虑query与目前召回中的进行对比，从而得到分词结果。必须得分词) J还是考虑调用es那边的bm25的相关性分数吧，自己写太累了。。。
 
 需要滤除拦截的。
 
@@ -50,12 +50,15 @@ spark-shell \
 import org.apache.spark.sql.expressions.{Window, WindowSpec}
 import org.apache.spark.sql.{Column, SparkSession, Row}
 import scala.reflect.runtime.universe._
-val date_start = "2019-09-03"
-val date_end = "2019-09-03"
+val date_day = "2019-11-10"
+val date_start = date_day
+val date_end = date_day
 val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
-val lvt1 = "2019-09-03 00:00:00.000"
-val lvt2 = "2019-09-03 23:59:59.999"
+val lvt1 = date_day + " 00:00:00.000"
+val lvt2 = date_day + " 23:59:59.999"
+//val lvt1 = "2019-09-03 00:00:00.000"
+//val lvt2 = "2019-09-03 23:59:59.999"
 val sql_sessions_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname from "+s"$datatable"+s"_sessions where cdt = '$date_end'"
 val df_sessions_read = spark.sql(sql_sessions_read)
 
@@ -65,7 +68,7 @@ u：歌曲id
 r：位置，如果本地播放为0
 d：与前一个点击的间距，如果本地播放为0
 c：点击与否，如果本地播放为true
-s：是否搜索，如果本地播放为0
+s：是否搜索，如果本地播放为0，1表示位置和相关都更新，2表示是折叠位置，则只更新相关，位置不用更新了
 cnt：总数
 choric_singer：歌手名
 songname：歌曲名
@@ -75,6 +78,143 @@ songname：歌曲名
 */
 
 ```
+
+### click版本spark
+
+```scala
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+//val date_day = "2019-11-10"
+val date_start = "2019-11-12"
+val date_end = "2019-11-14"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+//val lvt1 = date_day + " 00:00:00.000"
+//val lvt2 = date_day + " 23:59:59.999"
+//val lvt1 = "2019-09-03 00:00:00.000"
+//val lvt2 = "2019-09-03 23:59:59.999"
+val sql_sessions_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname from "+s"$datatable"+s"_sessions where cdt between "+s"'$date_start' and '$date_end'"
+//只关心c为true的情况，因为这里只关心点击，不关心位置rd
+val df_sessions_read = (spark.sql(sql_sessions_read).
+ filter($"s" =!= 0).
+ groupBy("q", "u", "choric_singer", "songname").
+ agg(count("cnt").alias("num")).
+ sort($"q".desc, $"num".desc)
+)
+df_sessions_read.persist()
+df_sessions_read.filter($"q" === "周杰伦").show()
+/*
+q：查询词
+u：歌曲id
+r：位置，如果本地播放为0
+d：与前一个点击的间距，如果本地播放为0
+c：点击与否，如果本地播放为true
+s：是否搜索，如果本地播放为0，1表示位置和相关都更新，2表示是折叠位置，则只更新相关，位置不用更新了
+cnt：总数
+choric_singer：歌手名
+songname：歌曲名
+|q|        u|  r|  d|    c|  s|cnt|       choric_singer|songname|
+|G.E.M.邓紫棋|102542260|125| 19|false|  1|  1|G.E.M.邓紫棋|Victoria|
+|victoria|102542260|  0|  0| true|  0|  1|G.E.M.邓紫棋|Victoria|
+*/
+
+val data_spec = "2019-11-11"
+val sql_raw_read= s"select a, scid_albumid, ivar2, tv, fo, kw, mid, i, lvt, svar2, sty, status, st, spt from "+s"$datatable"+s"_raw where cdt = '$data_spec' and mid = '203558088414556161490737452342408042744'"
+val df_raw_read = spark.sql(sql_raw_read)
+```
+
+### 更改埋点
+
+删除reason的限制，and (trim(reason)<>'1' or reason is null)
+
+7月份加入综合页
+
+```sql
+from ddl.dt_list_ard_d
+where
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a='3'
+    and action='search'
+    and fs='有搜索结果'
+    and sct='歌曲'
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+""")
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a in ('9697', '10650', '10654')
+    and scid_albumid IS NOT NULL
+    and CAST(ivar2 AS BIGINT) > 0
+    and action='search'
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+""")
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a ='14124'
+    and scid_albumid IS NOT NULL
+    and action='exposure'
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
+    and fo regexp '/搜索/[^/]+/(?:单曲)')
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a='4'
+    and scid_albumid IS NOT NULL
+    and action='play'
+    and trim(fs)<>'播放错误'
+    and trim(ivar10)='主动播放'
+    and (trim(reason)<>'1' or reason is null)
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
+    and ((trim(sty)='音频' and fo regexp '/搜索/[^/]+/(?:单曲|歌曲)')
+            or (trim(sty)='视频' and fo regexp '/搜索/[^/]+$')))
+
+```
+
+变成如下
+
+```sql
+from ddl.dt_list_ard_d
+where
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a='3'
+    and action='search'
+    and fs='有搜索结果'
+    and sct in ('综合', '歌曲')
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+""")
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a in (10650, 10654, 9697, 14301, 14302, 14303)
+    and b in ('搜索结果页-点击单曲播放','搜索结果页-点击加号插播','搜索结果页-下一首播放','搜索结果页-单曲-播放', '搜索结果页-单曲-加号插播', '搜索结果页-单曲-更多-下一首播放')
+    and scid_albumid IS NOT NULL
+    and CAST(ivar2 AS BIGINT) > 0
+    and action='search'
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+""")
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a ='14124'
+    and scid_albumid IS NOT NULL
+    and action='exposure'
+    and r in ('搜索综合tab页', '搜索单曲tab页')
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
+    and fo regexp '/搜索/[^/]+/(?:单曲)')
+OR
+(dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
+    and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
+    and a='4'
+    and scid_albumid IS NOT NULL
+    and action='play'
+    and trim(fs)<>'播放错误'
+    and trim(ivar10)='主动播放'
+    and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
+    and ((trim(sty)='音频' and fo regexp '/搜索/[^/]+(/综合)?/(?:单曲|歌曲)')
+            or (trim(sty)='视频' and fo regexp '/搜索/[^/]+$')))
+```
+
+
 
 ## lightgbm
 
@@ -680,6 +820,15 @@ Quality质量分
 [L2r 验证结果](http://cslt.riit.tsinghua.edu.cn/mediawiki/index.php/L2r_%E9%AA%8C%E8%AF%81%E7%BB%93%E6%9E%9C )
 
 利用"learning to rank 特征 分词"没搜到更进一步的资料了，估计就是这样了。**分词后，然后对各个领域(歌曲名，歌手名，版本备注，其他备注)计算共现等比例。理论上已经有分完词的结果了（ES已经处理好），只要计算下这类特征即可。考虑调用es进行分词（最好用这个）或者我自己写一个（直接取所有歌曲中的结果歌曲名，歌手名，版本，《》进行固定分词，作为词典了，其他考虑用hanlp分词，去除停用词等）**。
+
+### BM25（ES默认，说明需要分词）
+[BM25计算公式](https://blog.csdn.net/zhoubl668/article/details/7321012) 
+
+![](picture/bm25_all.png)
+
+![](picture/bm25.png)
+
+[BM25对tfidf的改进](https://www.jianshu.com/p/ff28004efb8a )
 
 ### 搜索策略
 
