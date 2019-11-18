@@ -192,7 +192,7 @@ INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_raw PARTITION(cdt='$date_end')
         when($"a" === "14124",
           regexp_extract($"fo","/搜索/([^/]+)/(?:单曲)",1)).
           when($"sty" === "音频",
-            regexp_extract($"fo","/搜索/[^/]+(/综合)?/(?:单曲|歌曲)",1)).
+            regexp_extract($"fo","/搜索/([^/]+)(/综合)?/(?:单曲|歌曲)",1)).
           when($"sty" === "视频",
             regexp_extract($"fo","/搜索/([^/]+)$",1)).
           otherwise(regexp_extract($"fo","/搜索/([^/]+)$",1))).

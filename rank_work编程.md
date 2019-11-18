@@ -86,7 +86,7 @@ import org.apache.spark.sql.expressions.{Window, WindowSpec}
 import org.apache.spark.sql.{Column, SparkSession, Row}
 import scala.reflect.runtime.universe._
 //val date_day = "2019-11-10"
-val date_start = "2019-11-16"
+val date_start = "2019-11-17"
 val date_end = "2019-11-17"
 val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
@@ -222,6 +222,14 @@ OR
 
 文本特征（BM25）；<u>音频长度</u>；收藏数；评论数；<u>发布时间</u>；历史播放总数；一周播放总数；<u>付费与否（vip）</u>；<u>原唱与否标记</u>；歌手排名热度和飙升；
 
+```sql
+105077632 爱情转移
+32190512 倒带
+select mixsongid, songname, albumid, singerid, ownercount, playcount, from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='32190512';
+```
+
+
+
 ```
 bi_sort	BI飙升排名	Int(11)	BI飙升排名（BI的原始数据草稿）
 sort	歌手飙升排名	Int(11)	歌手飙升排名
@@ -241,6 +249,82 @@ edit_sort	歌手热度排名	Int(11)	歌手热度排名
 heat_offset	歌手热度差值	int(11)	歌手热度差值
 BI数据来源
 更新频率：每天
+```
+
+```
+mixsongid               string                  混合歌曲ID              
+songname                string                  歌曲名                 
+other_info              string                  其他信息 淘汰字段           
+albumid                 string                  专辑ID                
+albumname               string                  专辑名称 冗余字段           
+singerid                string                  歌手ID                
+singername              string                  歌手名                 
+language                string                  歌曲的语言               
+choric_singer           string                  显示歌手名 历史作为合唱歌手      
+extname                 string                  歌曲扩展名               
+gd_sort                 string                  歌单排序                
+hash                    string                  歌曲文件hash            
+filesize                string                  歌曲文件大小              
+timelength              string                  歌曲时长(毫秒)            
+bitrate                 string                  歌曲比特率               
+publish_time            string                  歌曲发行时间              
+disc                    string                  所在CD盘               
+addtime                 string                  添加时间                
+edittime                string                  修改时间                
+is_choric               string                  是否合唱                
+is_single               string                  是否单曲                
+is_break_rule           string                  歌曲是否违规              
+is_file_head            string                  是否有200k头文件          
+is_copyright            string                  是否有版权               
+ownercount              string                  拥有者数                
+playcount               string                  播放次数                
+updater                 string                  最新修改人               
+upload_time             string                  上传歌曲文件时间            
+official_songname       string                  正式歌曲名(不带任何版本信息) 淘汰字段
+is_recommend            string                  是否推到新歌榜 1=已推        
+editor                  string                  标签编辑                
+is_finish               string                  打标签是否完成 0=不需要处理的单曲 1=完成处理的单曲 2=需要处理的单曲
+is_publish              string                  歌曲是否发布 同时满足扩散和m4a即可发布。
+platform_break_rule     string                  平台违规 位运算 1=pc 2=web  4=android  8=ios
+composer                string                  作曲人 淘汰字段            
+lyrics                  string                  作词人 淘汰字段            
+company                 string                  版权公司 淘汰字段           
+songid                  string                  歌曲词条ID              
+mv_hash                 string                  标清mv哈希 手机使用         
+high_mv_hash            string                  高清mv哈希 手机使用         
+mv_size                 string                  低码流mv文件大小           
+high_mv_size            string                  高码流mv文件大小           
+mv_type                 string                  mv类型                
+is_mv_file_head         string                  PC 高清MV 云标记         
+music_trac              string                  mv声道                
+hash_320                string                  320哈希               
+filesize_320            string                  320mp3的大小           
+hash_m4a                string                  m4a哈希               
+m4a_size                string                  m4a文件大小             
+hash_128                string                  128哈希               
+filesize_128            string                  128文件大小             
+source                  string                  来源　12＝抢鲜听 1=已扩散准备替换的 2=有m4a的
+hash_192                string                  192的哈希              
+filesize_192            string                  192的文件大小            
+hash_ape                string                  APE的哈希              
+filesize_ape            string                  APE的文件大小            
+bitrate_ape             string                  APE的比特率             
+hash_flac               string                  FLAC的哈希             
+filesize_flac           string                  FLAC的文件大小           
+bitrate_flac            string                  FLAC的比特率            
+scid                    string                  词条分类ID              
+vip                     string                  VIP限制（三大唱片公司）       
+mvid                    string                  MV ID               
+is_search               string                  0：false 1:true      
+remark                  string                  备注                  
+ori_audio_name          string                  歌曲名                 
+suffix_audio_name       string                  版本                  
+version                 string                                      
+bpm                     string                  歌曲节奏                
+hash_high               string                  推荐的HIFI音质文件hash     
+hash_super              string                  推荐的超hifi音质文件hash    
+dt                      string                                      
+                 
 ```
 
 
