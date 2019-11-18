@@ -103,7 +103,6 @@ OR
 (dt between """+s"""'$date_start'"""+""" and """+s"""'$date_end'"""+"""
     and lvt between """+s"""'$lvt1'"""+""" and """+s"""'$lvt2'"""+"""
     and a in (10650, 10654, 9697, 14301, 14302, 14303)
-    and b in ('搜索结果页-点击单曲播放','搜索结果页-点击加号插播','搜索结果页-下一首播放','搜索结果页-单曲-播放', '搜索结果页-单曲-加号插播', '搜索结果页-单曲-更多-下一首播放')
     and scid_albumid IS NOT NULL
     and CAST(ivar2 AS BIGINT) > 0
     and action='search'
@@ -193,7 +192,7 @@ INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_raw PARTITION(cdt='$date_end')
         when($"a" === "14124",
           regexp_extract($"fo","/搜索/([^/]+)/(?:单曲)",1)).
           when($"sty" === "音频",
-            regexp_extract($"fo","/搜索/([^/]+)/(?:单曲|歌曲)",1)).
+            regexp_extract($"fo","/搜索/[^/]+(/综合)?/(?:单曲|歌曲)",1)).
           when($"sty" === "视频",
             regexp_extract($"fo","/搜索/([^/]+)$",1)).
           otherwise(regexp_extract($"fo","/搜索/([^/]+)$",1))).
@@ -203,7 +202,7 @@ INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_raw PARTITION(cdt='$date_end')
         when($"status" === "完整播放" || $"spt_cnt" >= 30, 1).
           otherwise(0)).
         otherwise(null)).
-      withColumn("ivar", when($"a".isin("9697", "10650", "10654"), $"ivar2").otherwise(0)).
+      withColumn("ivar", when($"a".isin("10650", "10654", "9697", "14301", "14302", "14303"), $"ivar2").otherwise(0)).
       select("a", "mid", "i", "scid_albumid", "lvt", "keyword", "valid", "ivar")
 
     df_edit.createOrReplaceTempView("edit_data")
@@ -307,7 +306,7 @@ INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_click_position PARTITION(cdt='
       orderBy(asc("lvt")).
       rowsBetween(Long.MinValue, 0) //Long.MinValue means "UNBOUNDED PRECEDING"
     val df_click_tag = df_tag.filter($"a" =!= "14124").
-      withColumn("session", when($"a".isin("9697", "10650", "10654"),
+      withColumn("session", when($"a".isin("10650", "10654", "9697", "14301", "14302", "14303"),
         max($"tag").over(window_click_tag)).
         otherwise(0))
     //4.根据mid，i, scid_albumid,keyword进行对a=4溯源。返回parent，position
@@ -327,12 +326,12 @@ INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_click_position PARTITION(cdt='
         for (Row(a:String, s:Int, p:Long) <- asession.reverse){
           a match {
             case "4" => plays += 1
-            case "10650" => {
+            case "10650" | "14301" => {
               withinops = plays
               cops = cops:+s
               clocation = clocation:+p
             }
-            case "10654" | "9697" => {
+            case "10654" | "9697" | "14302" | "14303" => {
               withinops = plays
               ops = ops:+s
               olocation = olocation:+p
@@ -838,7 +837,7 @@ INSERT OVERWRITE TABLE """+s"""$thisdatatable"""+s"""_position_new PARTITION(cdt
 
     //begin new function
     val df_play_click = df_parent_read.
-      filter($"a".isin("9697", "10650", "10654") && $"session".isNotNull && $"session" =!= 0 ).
+      filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303") && $"session".isNotNull && $"session" =!= 0 ).
       groupBy("mid", "i", "session").
       agg(collect_list("scid_albumid") as "scid_albumid", collect_list("ivar") as "ivar", collect_list("keyword") as "keyword").
       withColumn("kw", count_most($"keyword")).

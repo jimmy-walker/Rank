@@ -86,8 +86,8 @@ import org.apache.spark.sql.expressions.{Window, WindowSpec}
 import org.apache.spark.sql.{Column, SparkSession, Row}
 import scala.reflect.runtime.universe._
 //val date_day = "2019-11-10"
-val date_start = "2019-11-12"
-val date_end = "2019-11-14"
+val date_start = "2019-11-16"
+val date_end = "2019-11-17"
 val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
 //val lvt1 = date_day + " 00:00:00.000"
@@ -119,14 +119,18 @@ songname：歌曲名
 |victoria|102542260|  0|  0| true|  0|  1|G.E.M.邓紫棋|Victoria|
 */
 
-val data_spec = "2019-11-11"
+val data_spec = "2019-11-17"
 val sql_raw_read= s"select a, scid_albumid, ivar2, tv, fo, kw, mid, i, lvt, svar2, sty, status, st, spt from "+s"$datatable"+s"_raw where cdt = '$data_spec' and mid = '203558088414556161490737452342408042744'"
 val df_raw_read = spark.sql(sql_raw_read)
 ```
 
-### 更改埋点
+#### 更改埋点
+
+修改scala代码中的`regexp_extract($"fo","/搜索/[^/]+(/综合)?/(?:单曲|歌曲)",1)).`
 
 删除reason的限制，and (trim(reason)<>'1' or reason is null)
+
+删除b的限制，and b in ('搜索结果页-点击单曲播放','搜索结果页-点击加号插播','搜索结果页-下一首播放','搜索结果页-单曲-播放', '搜索结果页-单曲-加号插播', '搜索结果页-单曲-更多-下一首播放')
 
 7月份加入综合页
 
@@ -212,6 +216,106 @@ OR
     and coalesce(CAST(tv1 AS INT),CAST(tv AS INT))>="""+s"""'$edition'"""+"""
     and ((trim(sty)='音频' and fo regexp '/搜索/[^/]+(/综合)?/(?:单曲|歌曲)')
             or (trim(sty)='视频' and fo regexp '/搜索/[^/]+$')))
+```
+
+####获取特征
+
+文本特征（BM25）；<u>音频长度</u>；收藏数；评论数；<u>发布时间</u>；历史播放总数；一周播放总数；<u>付费与否（vip）</u>；<u>原唱与否标记</u>；歌手排名热度和飙升；
+
+```
+bi_sort	BI飙升排名	Int(11)	BI飙升排名（BI的原始数据草稿）
+sort	歌手飙升排名	Int(11)	歌手飙升排名
+排名数升序
+BI数据来源
+更新频率：每天
+sort_offset	歌手飙升差值	   Int(11)	歌手飙升差值
+BI数据来源
+更新频率：每天
+play_times	歌手热度值	   Int(11)	歌手热度值
+BI数据来源
+更新频率：每天
+edit_sort	歌手热度排名	Int(11)	歌手热度排名
+排名数升序
+服务器组数据来源
+更新频率：每天
+heat_offset	歌手热度差值	int(11)	歌手热度差值
+BI数据来源
+更新频率：每天
+```
+
+
+
+```
+common.st_k_mixsong_part表中的mixsongid，
+链接到singerid，k_singer的主键
+timelength歌曲时长
+publish_time发行时间
+is_single歌曲性质，1原唱，2翻唱
+vip限制
+version版本
+-1 '外包未处理',
+  0  '未处理',
+  1  '单曲',
+  2  '现场',
+  3  '铃声',
+  4  '原版伴奏'
+  5  'DJ',
+  6  '曲艺',
+  7  '戏剧',
+  8  '混音',
+  9  '纯音乐',
+  10 '综艺',
+  11 '有声读物',
+  12 '广场舞',
+```
+
+```
+dsl.restruct_dwm_list_all_play_d中的
+select
+    a.*,
+    b.play_count,
+    b.play_count_30,
+    b.play_count_60,
+    b.play_count_all
+from song_combine_click_data a
+left join (
+    select
+            mixsongid,
+            sum(play_count) as play_count,
+            sum(case when regexp_extract(spttag,'[0-9]+$',0)>30 then play_count else 0 end) as play_count_30,
+            sum(case when regexp_extract(spttag,'[0-9]+$',0)>60 then play_count else 0 end) as play_count_60,
+            sum(case when status='完整播放' then play_count else 0 end) as play_count_all
+    from dsl.restruct_dwm_list_all_play_d
+    where dt = """ + s"""'$date_end'""" + """
+            and pt='android'
+            and sty='音频'
+            and status<>'播放错误'
+            and (fo rlike '搜索/' or fo rlike '^(/)?搜索$')
+    group by
+            mixsongid
+) b
+on a.u = b.mixsongid
+```
+
+```
+select
+    a.*,
+    b.choric_singer,
+    b.songname
+from sessions_pre_click_data a
+left join (
+    select
+            mixsongid,
+            choric_singer,
+            songname
+    from common.st_k_mixsong_part
+    where dt = '$date_end'
+    group by
+             mixsongid,
+             choric_singer,
+             songname
+) b
+on a.u = b.mixsongid
 ```
 
 
