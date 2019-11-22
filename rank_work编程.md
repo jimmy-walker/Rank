@@ -44,41 +44,6 @@ spark-shell \
 --conf spark.scheduler.listenerbus.eventqueue.size=100000
 ```
 
-
-
-```scala
-import org.apache.spark.sql.expressions.{Window, WindowSpec}
-import org.apache.spark.sql.{Column, SparkSession, Row}
-import scala.reflect.runtime.universe._
-val date_day = "2019-11-10"
-val date_start = date_day
-val date_end = date_day
-val edition = "9156"
-val datatable = "temp.jomei_search_cm_9156_click"
-val lvt1 = date_day + " 00:00:00.000"
-val lvt2 = date_day + " 23:59:59.999"
-//val lvt1 = "2019-09-03 00:00:00.000"
-//val lvt2 = "2019-09-03 23:59:59.999"
-val sql_sessions_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname from "+s"$datatable"+s"_sessions where cdt = '$date_end'"
-val df_sessions_read = spark.sql(sql_sessions_read)
-
-/*
-q：查询词
-u：歌曲id
-r：位置，如果本地播放为0
-d：与前一个点击的间距，如果本地播放为0
-c：点击与否，如果本地播放为true
-s：是否搜索，如果本地播放为0，1表示位置和相关都更新，2表示是折叠位置，则只更新相关，位置不用更新了
-cnt：总数
-choric_singer：歌手名
-songname：歌曲名
-|q|        u|  r|  d|    c|  s|cnt|       choric_singer|songname|
-|G.E.M.邓紫棋|102542260|125| 19|false|  1|  1|G.E.M.邓紫棋|Victoria|
-|victoria|102542260|  0|  0| true|  0|  1|G.E.M.邓紫棋|Victoria|
-*/
-
-```
-
 ### click版本spark
 
 ```scala
@@ -86,10 +51,86 @@ import org.apache.spark.sql.expressions.{Window, WindowSpec}
 import org.apache.spark.sql.{Column, SparkSession, Row}
 import scala.reflect.runtime.universe._
 //val date_day = "2019-11-10"
-val date_start = "2019-11-17"
-val date_end = "2019-11-17"
+val date_start = "2019-11-21"
+val date_end = "2019-11-21"
 val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+val sql_clickdata_read= s"select keyword, scid_albumid, choric_singer, songname, num, position from "+s"$datatable"+s"_click_data where cdt between "+s"'$date_start' and '$date_end'"
+val df_clickdata_read = spark.sql(sql_clickdata_read)
+df_clickdata_read.persist()
+df_clickdata_read.filter($"keyword" === "倒带").sort($"num".desc).show()                
+df_clickdata_read.count()
+res4: Long = 8033243     
+
+df_clickdata_read.select("keyword").distinct().count()
+res6: Long = 2511506
+
+val window_all = Window.partitionBy("keyword")
+val df_clickdata_read_total = (df_clickdata_read.
+     withColumn("total", sum($"num").over(window_all)))
+df_clickdata_read_total.sort($"total".desc, $"keyword".desc, $"num".desc).show() 
+
+df_clickdata_read_total.select("total").distinct().sort($"total".desc).show()
+
+df_clickdata_read_total.select("total").distinct().filter($"total" > 10000).count()
+res16: Long = 1260
+df_clickdata_read_total.filter($"total" > 10000).count()
+res21: Long = 197399
+
+df_clickdata_read_total.select("total").distinct().filter($"total" > 5000).count()
+res17: Long = 2412
+df_clickdata_read_total.filter($"total" > 5000).count()
+res20: Long = 334118                                                            
+
+df_clickdata_read_total.select("total").distinct().filter($"total" > 1000).count()
+res18: Long = 5167 
+scala> df_clickdata_read_total.filter($"total" > 1000).count()
+res19: Long = 777892    
+//J感觉1000阈值够了，因为mq2008也只有800个query。而yahoo的url也只有473134个训练。lightgbm中抽样出训练201个query，总共3000个url。测试50个query。而yahoo中train与test比例在3比1。
+
+df_clickdata_read_total.filter($"total" <= 1000).sort($"total".desc, $"keyword".desc, $"num".desc).show() 
+
+
+```
+
+#### 原始的点击模型测试效果
+
+```scala
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+//val date_day = "2019-11-10"
+val date_start = "2019-11-21"
+val date_end = "2019-11-21"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+//有效播放
+val sql_clickmodel_read= s"select q, u, choric_singer, songname, numerator, denominator, local, click, mean_nums, mean_alpha, mean_nums_3, mean_alpha_2, mean_alpha_3, alpha, alpha_t, alpha_c, alpha_search, alpha_direct, alpha_v from "+s"$thisdatatable"+s"_result_new_combine_v_2 where cdt between "+s"'$date_start' and '$date_end'"
+val df_clickmodel_read = spark.sql(sql_clickmodel_read)
+df_clickmodel_read.persist()
+df_clickmodel_read.filter($"q" === "倒带").sort($"alpha".desc).show()   
+//点击
+val sql_clickmodelclick_read= s"select q, u, choric_singer, songname, numerator, denominator, click, mean_nums, mean_alpha, mean_nums_2, mean_alpha_2, alpha, alpha_t, alpha_search, alpha_v, alpha_r, play_count, play_count_30, play_count_60, play_count_all from "+s"$thisdatatable"+s"_result_new_combine_v_2_click where cdt between "+s"'$date_start' and '$date_end'"
+val df_clickmodelclick_read = spark.sql(sql_clickmodelclick_read)
+df_clickmodelclick_read.persist()
+df_clickmodelclick_read.filter($"q" === "倒带").sort($"alpha".desc).show()   
+
+
+```
+
+
+
+#### 确定数据集范围和比例
+
+**见上述scala代码，尝试将阈值设定在1000搜索量以上的比例。进行5比1划分训练与测试集**
+
+777892配对
+
+#### 开发的spark代码临时用
+
+```scala
 //val lvt1 = date_day + " 00:00:00.000"
 //val lvt2 = date_day + " 23:59:59.999"
 //val lvt1 = "2019-09-03 00:00:00.000"
@@ -99,7 +140,7 @@ val sql_sessions_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname f
 val df_sessions_read = (spark.sql(sql_sessions_read).
  filter($"s" =!= 0).
  groupBy("q", "u", "choric_singer", "songname").
- agg(count("cnt").alias("num")).
+ agg(sum("cnt").alias("num")).
  sort($"q".desc, $"num".desc)
 )
 df_sessions_read.persist()
@@ -111,7 +152,7 @@ r：位置，如果本地播放为0
 d：与前一个点击的间距，如果本地播放为0
 c：点击与否，如果本地播放为true
 s：是否搜索，如果本地播放为0，1表示位置和相关都更新，2表示是折叠位置，则只更新相关，位置不用更新了
-cnt：总数
+cnt：总数，对于q,u,r,d,c,s组合的总数
 choric_singer：歌手名
 songname：歌曲名
 |q|        u|  r|  d|    c|  s|cnt|       choric_singer|songname|
@@ -119,10 +160,89 @@ songname：歌曲名
 |victoria|102542260|  0|  0| true|  0|  1|G.E.M.邓紫棋|Victoria|
 */
 
-val data_spec = "2019-11-17"
-val sql_raw_read= s"select a, scid_albumid, ivar2, tv, fo, kw, mid, i, lvt, svar2, sty, status, st, spt from "+s"$datatable"+s"_raw where cdt = '$data_spec' and mid = '203558088414556161490737452342408042744'"
+val date_spec = "2019-11-18"
+val sql_raw_read2= s"select a, scid_albumid, ivar2, tv, fo, kw, mid, i, lvt, svar2, sty, status, st, spt from "+s"$datatable"+s"_raw where cdt = '$date_spec' and mid = '203558088414556161490737452342408042744'"
+val df_raw_read2 = spark.sql(sql_raw_read2)
+
+val date_spec = "2019-11-18"
+val sql_raw_read= s"select a, scid_albumid, ivar2, tv, fo, kw, mid, i, lvt, svar2, sty, status, st, spt from "+s"$datatable"+s"_raw where cdt = '$date_spec' and scid_albumid = '32190512'"
 val df_raw_read = spark.sql(sql_raw_read)
+df_raw_read.persist()
+val df_raw_read_filter = (df_raw_read.
+ filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303")).
+ groupBy("q", "u", "choric_singer", "songname").
+ agg(count("cnt").alias("num")).
+ sort($"q".desc, $"num".desc)
+)
+
+val sql_edit_read= s"select a, mid, i, scid_albumid, lvt, keyword, valid, ivar from "+s"$datatable"+s"_edit where cdt = '$date_spec' and scid_albumid = '32190512'"
+val df_edit_read = spark.sql(sql_edit_read)
+df_edit_read.persist()
+val df_edit_read_filter = (df_edit_read.
+ filter($"a" === "4").
+ filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303"))
+)
+
+val date_spec = "2019-11-18"
+val sql_edit_read= s"select a, mid, i, scid_albumid, lvt, keyword, valid, ivar from "+s"$datatable"+s"_edit where cdt = '$date_spec' and keyword = '倒带'"
+val df_edit_read = spark.sql(sql_edit_read)
+df_edit_read.persist()
+val df_edit_read_filter = (df_edit_read.
+ //filter($"a" === "4").
+ filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303")).
+ groupBy("keyword", "scid_albumid", "ivar").
+ agg(count("*").alias("num")).
+ sort($"keyword".desc, $"num".desc)
+)
+df_edit_read_filter.createOrReplaceTempView("sessions_pre_data")
+val sql_song_retrieve= s"""
+select
+    a.*,
+    b.choric_singer,
+    b.songname
+from sessions_pre_data a
+left join (
+    select
+            mixsongid,
+            choric_singer,
+            songname
+    from common.st_k_mixsong_part
+    where dt = '$date_spec'
+    group by
+             mixsongid,
+             choric_singer,
+             songname
+) b
+on a.scid_albumid = b.mixsongid
+"""
+
+val df_edit_read_song = spark.sql(sql_song_retrieve)
+df_edit_read_song.sort($"num".desc).show()
+//对同一mixsongid，选择数量最大的位置作为主位置。
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+val window_position = Window.partitionBy("keyword", "scid_albumid").orderBy(desc("num"))
+val df_edit_read_position = (df_edit_read_song.
+     withColumn("position", first($"ivar").over(window_position)).
+     groupBy("keyword", "scid_albumid", "choric_singer", "songname").
+     agg(sum("num").alias("num"), first("position").alias("position")))
+//再对同名的且同位置的不同mixsongid的进行删除，只取数量最大值进行保留
+val window_fold = Window.partitionBy("keyword", "choric_singer", "songname_new", "position").orderBy(desc("num"))
+val df_edit_read_fold = (df_edit_read_position.
+     withColumn("songname_new", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
+     withColumn("mixsongid", first($"scid_albumid").over(window_fold)).
+     filter($"mixsongid" === $"scid_albumid").
+     select("keyword", "scid_albumid", "choric_singer", "songname", "num", "position"))
+//有些位置缺失，应该是调整排序后导致的数据量偏移，不过没有关系，反正最后按照num进行相关度度量
+df_edit_read_fold.sort($"num".desc).show(40)
+
+max($"tag").over(window_click_position)
+
+val sql_session_read= s"select mid, i, parent, scid_albumid, position, kw, session from "+s"$datatable"+s"_session where cdt = '$date_spec' and mid = '203558088414556161490737452342408042744'"
+val df_session_read = spark.sql(sql_session_read)
+
 ```
+
+
 
 #### 更改埋点
 
@@ -222,10 +342,111 @@ OR
 
 文本特征（BM25）；<u>音频长度</u>；收藏数；评论数；<u>发布时间</u>；历史播放总数；一周播放总数；<u>付费与否（vip）</u>；<u>原唱与否标记</u>；歌手排名热度和飙升；
 
+```scala
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+//val date_day = "2019-11-10"
+val date_start = "2019-11-21"
+val date_end = "2019-11-21"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+val date_spec = date_end
+val sql_edit_read= s"select a, mid, i, scid_albumid, lvt, keyword, valid, ivar from "+s"$datatable"+s"_edit where cdt = '$date_spec' and keyword = '张杰'"
+val df_edit_read = spark.sql(sql_edit_read)
+df_edit_read.persist()
+val df_edit_read_filter = (df_edit_read.
+ //filter($"a" === "4").
+ filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303")).
+ groupBy("keyword", "scid_albumid", "ivar").
+ agg(count("*").alias("num")).
+ sort($"keyword".desc, $"num".desc)
+)
+df_edit_read_filter.createOrReplaceTempView("sessions_pre_data")
+val sql_song_retrieve= s"""
+select
+    a.*,
+    b.choric_singer,
+    b.songname
+from sessions_pre_data a
+left join (
+    select
+            mixsongid,
+            choric_singer,
+            songname
+    from common.st_k_mixsong_part
+    where dt = '$date_spec'
+    group by
+             mixsongid,
+             choric_singer,
+             songname
+) b
+on a.scid_albumid = b.mixsongid
+"""
+
+val df_edit_read_song = spark.sql(sql_song_retrieve)
+//df_edit_read_song.sort($"num".desc).show()
+//对同一mixsongid，选择数量最大的位置作为主位置。
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+val window_position = Window.partitionBy("keyword", "scid_albumid").orderBy(desc("num"))
+val df_edit_read_position = (df_edit_read_song.
+     withColumn("position", first($"ivar").over(window_position)).
+     groupBy("keyword", "scid_albumid", "choric_singer", "songname").
+     agg(sum("num").alias("num"), first("position").alias("position")))
+//再对同名的且同位置的不同mixsongid的进行删除，只取数量最大值进行保留
+val window_fold = Window.partitionBy("keyword", "choric_singer", "songname_new", "position").orderBy(desc("num"))
+val df_edit_read_fold = (df_edit_read_position.
+     withColumn("songname_new", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
+     withColumn("mixsongid", first($"scid_albumid").over(window_fold)).
+     filter($"mixsongid" === $"scid_albumid").
+     select("keyword", "scid_albumid", "choric_singer", "songname", "num", "position"))
+//有些位置缺失，应该是调整排序后导致的数据量偏移，不过没有关系，反正最后按照num进行相关度度量
+df_edit_read_fold.persist()
+df_edit_read_fold.createOrReplaceTempView("position_new_click_data")
+df_edit_read_fold.sort($"num".desc).show(40)
+//6)auquire more feature
+val sql_feature_retrieve= s"""
+select
+    a.*,
+    b.albumid,
+    b.timelength, 
+    b.publish_time, 
+    b.is_choric, 
+    b.is_single, 
+    b.ownercount, 
+    b.playcount, 
+    b.version
+from position_new_click_data a
+left join common.st_k_mixsong_part b
+on a.scid_albumid = b.mixsongid and b.dt = '$date_end'
+"""
+
+val df_edit_read_feature = spark.sql(sql_feature_retrieve)
+df_edit_read_feature.persist()
+df_edit_read_feature.sort($"num".desc).show(40)
+```
+
+
+
+```hive
+select singerid, singername, grade, sextype, sorts, sort_offset, play_times, edit_sort, heat_offset from common.k_singer_part a LEFT SEMI JOIN (select author_id from common.canal_k_album_audio_author where album_audio_id = "108847683" group by author_id )b on (a.singerid = b.author_id and a.dt = "2019-11-21");
+```
+
+
+
+
+
 ```sql
 105077632 爱情转移
 32190512 倒带
-select mixsongid, songname, albumid, singerid, ownercount, playcount, from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='32190512';
+101217643 倒带live
+40478056 倒带live
+select mixsongid, songname, albumid, singerid, choric_singer, timelength, publish_time, is_choric, is_single, ownercount, playcount, vip, version from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='32190512';
+select mixsongid, songname, albumid, singerid, choric_singer, timelength, publish_time, is_choric, is_single, ownercount, playcount, vip, version from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='105077632';
+select mixsongid, songname, albumid, singerid, choric_singer, timelength, publish_time, is_choric, is_single, ownercount, playcount, vip, version from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='101217643';
+select mixsongid, songname, albumid, singerid, choric_singer, timelength, publish_time, is_choric, is_single, ownercount, playcount, vip, version from common.st_k_mixsong_part where dt='2019-11-17' and mixsongid='40478056';
+
 ```
 
 
@@ -252,6 +473,8 @@ BI数据来源
 ```
 
 ```
+mixsongid, songname, albumid, singerid, choric_singer, timelength, publish_time, is_choric, is_single, ownercount, playcount, vip, version
+
 mixsongid               string                  混合歌曲ID              
 songname                string                  歌曲名                 
 other_info              string                  其他信息 淘汰字段           
@@ -401,6 +624,61 @@ left join (
 ) b
 on a.u = b.mixsongid
 ```
+
+#### 特征工程中用到的数据源
+
+```
+k_mixsong的singerid是没用的，因为复合歌手是一个单独的id，使用mixsongid查询k_album_audio_author，得到author_id，表示分别两个歌手的id。
+曲库外部表，需要使用hive去跑。
+```
+
+```
+k_mixsong表提供
+    b.choric_singer, 歌手名
+    b.songname, 歌曲名
+    b.albumid, 专辑id
+    b.timelength, 时长
+    b.publish_time, 发行时间
+    b.is_choric, 组曲
+    b.is_single,  原唱
+    b.ownercount,  歌曲的三端+本地播放次数（代表歌曲热度，搜索中的绿色信号）
+    b.playcount, 歌曲的vip搜索播放次数（代表歌曲热度）
+    b.version 版本现场等
+```
+
+```
+k_singer表提供
+grade,歌手评级 0:无评级 1:S 2:A 3:B 4:C 5:D 6:E
+sextype, 
+sorts, 歌手飙升排序
+sort_offset, 歌手飙升排名最近2次的排名偏移值
+edit_sort, 歌手热度排序
+bi_sort, 歌手歌曲播放量累加值，降序
+有两个数据缺失，应该是BI没有同步
+play_times,歌手热度排序的实际热度值，降序
+heat_offset,歌手热度排名最近2次的排名偏移值
+而hot_sort是null，应该是BI同步时候出错
+```
+
+```
+k_album
+hot,专辑歌曲scid搜索播放累加值，仅搜索排序用
+其他字段BI未同步
+sum_ownercount,专辑歌曲mixsongid播放累加值
+```
+
+```
+dal.listen_pay_songs_d表提供付费试听的mixsongid
+
+```
+
+```
+搜索处国花提供拦截表，其中是由ownercount决定排序，即非该query下决定。但为什么绿色信号不是降序呢？有问题。
+```
+
+
+
+#### 去除收费和拦截的，计算相关特征
 
 
 
@@ -1025,6 +1303,141 @@ Quality质量分
 "learning to rank 特征 分词"
 
 "learning to rank microsoft 136"
+
+## 文本特征
+歌手名，歌曲名，专辑名来源于common.st_k_mixsong_part的choric_singer, songname, albumname字段，其中对songname中的括号进行提取得到版本。
+
+备注来源于 common.canal_kugoumusiclib_k_album_audio_remark的album_audio_remark字段，对其中的关键字进行提取作为类型。
+
+我们只提取以下字段作为类型，这些字段来源对album_audio_remark字段的高频分析：
+
+```scala
+val category = List("ost", "插曲", "主题曲", "原声带", "配乐", "片尾曲", 
+                    "片头曲", "originalsoundtrack", "原声", "宣传曲", "op", 
+                    "ed", "推广曲", "角色歌", "in", "背景音乐", "tm", "钢琴曲", 
+                    "开场曲", "剧中曲", "bgm", "暖水曲", "主题歌")
+```
+
+### 获取歌曲相关备注（外部曲库表）翻译也在其中
+
+####type_id取值说明
+
+2=原声带备注 准备废弃，转到ip库上
+4=原曲 准备废弃，转到词曲库上
+5=原唱 准备废弃，转到词曲库上
+6=其他备注
+7=译名
+8=语言版本 准备废弃，转到词曲库上
+9=其他发行名
+10=p2p备注
+11=其他版本 废弃
+
+```shell
+source $BIPROG_ROOT/bin/shell/common.sh
+vDay=${DATA_DATE} #yesterday
+yyyy_mm_dd_1=`date -d "$vDay" +%Y-%m-%d` #yesterday
+
+sql_remark="
+set mapreduce.job.queuename=${q};
+use temp;
+create table if not exists temp.search_remark
+(
+      scid_albumid string,
+      remark    string,
+      hot       double,
+      type      string,
+      rel_album_audio_id string
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile;
+insert overwrite table temp.search_remark partition (cdt='${yyyy_mm_dd_1}')
+select 
+        scid_albumid, 
+        album_audio_remark as remark, 
+        hot, 
+        type_id as type, 
+        rel_album_audio_id 
+from (
+        select 
+                scid_albumid, 
+                album_audio_remark, 
+                hot, 
+                type_id, 
+                rel_album_audio_id, 
+                row_number() over(partition by scid_albumid, type_id order by add_time desc) as rank 
+        from (
+                select 
+                        b.scid_albumid, 
+                        a.album_audio_remark, 
+                        b.hot, a.add_time, 
+                        a.type_id, 
+                        a.rel_album_audio_id
+                from common.canal_kugoumusiclib_k_album_audio_remark a 
+                inner join temp.jimmy_dt_hot_score b 
+                where a.album_audio_id=b.scid_albumid 
+                    and b.cdt='${yyyy_mm_dd_1}'
+                    and a.type_id in ('2', '4', '5', '7', '8') 
+        )c
+)d where rank = 1
+"
+hive -e "$sql_remark"
+```
+
+```sql
+select album_audio_remark, type_id
+from common.canal_kugoumusiclib_k_album_audio_remark
+where album_audio_id = '105077632'
+  and type_id in ('2', '4', '5', '7', '8');
+```
+
+```scala
+    val df_remark_music = df_remark.filter($"type" === "2")
+                                   .filter($"remark" =!= "")
+                                   .select("scid_albumid", "remark", "hot")
+    val df_remark_language = df_remark.filter($"type" === "8")
+                                      .filter($"remark" =!= "")
+                                      .select("scid_albumid", "remark", "hot")
+
+    val df_remark_ref = df_remark.filter($"type" === "4" || $"type" === "5")
+                                 .filter($"remark" =!= "")
+                                 .filter($"rel_album_audio_id" =!= "0")
+                                 .select("scid_albumid", "remark", "hot", "rel_album_audio_id")
+                                 .withColumnRenamed("hot", "cover_hot")
+
+    val df_remark_translate = df_remark.filter($"type" === "7")
+                                       .filter($"remark".isNotNull && $"remark" =!= "")
+                                       .select("scid_albumid", "remark", "hot")
+
+    val df_remark_notion = df_remark_music.filter(not($"remark".contains("@BI_ROW_SPLIT@")))
+                                          .withColumn("notion", regexp_extract($"remark", "《(.*)》", 1))
+                                          .withColumn("category", myfunc(regexp_replace($"remark", "《.*》", "")))
+
+    val df_remark_multiple = df_remark_music.filter($"remark".contains("@BI_ROW_SPLIT@"))
+                                            .withColumn("remark_new", explode(split($"remark", "@BI_ROW_SPLIT@")))
+                                            .select("scid_albumid", "hot", "remark_new")
+                                            .withColumnRenamed("remark_new", "remark")
+                                            .withColumn("notion", regexp_extract($"remark", "《(.*)》", 1))
+                                            .withColumn("category", myfunc(regexp_replace($"remark", "《.*》", "")))
+
+    val df_remak_final = df_remark_notion.select("scid_albumid", "hot", "remark", "notion", "category")
+                                         .union(df_remark_multiple.select("scid_albumid", "hot", "remark", "notion", "category"))
+
+    val df_remark_language_final = df_remark_language.filter(not($"remark".contains("@BI_ROW_SPLIT@")))
+                                                     .withColumn("notion", regexp_extract($"remark", "《(.*)》", 1))
+                                                     .withColumn("category", regexp_replace($"remark", "《.*》", ""))
+
+    val df_remark_ref_cover = df_remark_ref.join(df_sn_sep, df_remark_ref("scid_albumid") === df_sn_sep("mixsongid"), "left")
+                                           .select("scid_albumid", "cover_hot", "rel_album_audio_id", "song")
+                                           .withColumnRenamed("song", "cover_song")
+    val df_remark_ref_final = df_remark_ref_cover.join(df_sn_sep, df_remark_ref_cover("rel_album_audio_id") === df_sn_sep("mixsongid"), "left")
+                                                 .filter($"hot".isNotNull)
+                                                 .select("scid_albumid", "cover_hot", "rel_album_audio_id", "cover_song", "song", "hot")
+
+```
+
+
+
+
 
 ## 项目计划
 
