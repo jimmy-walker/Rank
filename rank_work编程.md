@@ -242,6 +242,91 @@ val df_session_read = spark.sql(sql_session_read)
 
 ```
 
+```scala
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+//val date_day = "2019-11-10"
+val date_start = "2019-11-24"
+val date_end = "2019-11-24"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+val date_spec = date_end
+val sql_edit_read= s"select a, mid, i, scid_albumid, lvt, keyword, valid, ivar from "+s"$datatable"+s"_edit where cdt = '$date_spec' and keyword = '倒带'"
+val df_edit_read = spark.sql(sql_edit_read)
+df_edit_read.persist()
+val df_edit_read_filter = (df_edit_read.
+ //filter($"a" === "4").
+ filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303")).
+ groupBy("keyword", "scid_albumid", "ivar").
+ agg(count("*").alias("num")).
+ sort($"keyword".desc, $"num".desc)
+)
+df_edit_read_filter.createOrReplaceTempView("sessions_pre_data")
+val sql_song_retrieve= s"""
+select
+    a.*,
+    b.choric_singer,
+    b.songname
+from sessions_pre_data a
+left join (
+    select
+            mixsongid,
+            choric_singer,
+            songname
+    from common.st_k_mixsong_part
+    where dt = '$date_spec'
+    group by
+             mixsongid,
+             choric_singer,
+             songname
+) b
+on a.scid_albumid = b.mixsongid
+"""
+
+val df_edit_read_song = spark.sql(sql_song_retrieve)
+//df_edit_read_song.sort($"num".desc).show()
+//对同一mixsongid，选择数量最大的位置作为主位置。
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+val window_position = Window.partitionBy("keyword", "scid_albumid").orderBy(desc("num"))
+val df_edit_read_position = (df_edit_read_song.
+     withColumn("position", first($"ivar").over(window_position)).
+     groupBy("keyword", "scid_albumid", "choric_singer", "songname").
+     agg(sum("num").alias("num"), first("position").alias("position")))
+//再对同名的且同位置的不同mixsongid的进行删除，只取数量最大值进行保留
+val window_fold = Window.partitionBy("keyword", "choric_singer", "songname_new", "position").orderBy(desc("num"))
+val df_edit_read_fold = (df_edit_read_position.
+     withColumn("songname_new", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
+     withColumn("mixsongid", first($"scid_albumid").over(window_fold)).
+     filter($"mixsongid" === $"scid_albumid").
+     select("keyword", "scid_albumid", "choric_singer", "songname", "num", "position"))
+//有些位置缺失，应该是调整排序后导致的数据量偏移，不过没有关系，反正最后按照num进行相关度度量
+df_edit_read_fold.persist()
+df_edit_read_fold.createOrReplaceTempView("position_new_click_data")
+df_edit_read_fold.sort($"num".desc).show(40)
+//6)auquire more feature
+val sql_feature_retrieve= s"""
+select
+    a.*,
+    b.albumid,
+    b.timelength, 
+    b.publish_time, 
+    b.is_choric, 
+    b.is_single, 
+    b.ownercount, 
+    b.playcount, 
+    b.version
+from position_new_click_data a
+left join common.st_k_mixsong_part b
+on a.scid_albumid = b.mixsongid and b.dt = '$date_end'
+"""
+
+val df_edit_read_feature = spark.sql(sql_feature_retrieve)
+df_edit_read_feature.persist()
+df_edit_read_feature.sort($"num".desc).show(40)
+```
+
 
 
 #### 更改埋点
@@ -346,65 +431,19 @@ OR
 import org.apache.spark.sql.expressions.{Window, WindowSpec}
 import org.apache.spark.sql.{Column, SparkSession, Row}
 import scala.reflect.runtime.universe._
+import org.apache.spark.sql.types.IntegerType
 //val date_day = "2019-11-10"
-val date_start = "2019-11-21"
-val date_end = "2019-11-21"
+val date_start = "2019-11-24"
+val date_end = "2019-11-24"
 val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
 val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
 val date_spec = date_end
-val sql_edit_read= s"select a, mid, i, scid_albumid, lvt, keyword, valid, ivar from "+s"$datatable"+s"_edit where cdt = '$date_spec' and keyword = '张杰'"
-val df_edit_read = spark.sql(sql_edit_read)
-df_edit_read.persist()
-val df_edit_read_filter = (df_edit_read.
- //filter($"a" === "4").
- filter($"a".isin("10650", "10654", "9697", "14301", "14302", "14303")).
- groupBy("keyword", "scid_albumid", "ivar").
- agg(count("*").alias("num")).
- sort($"keyword".desc, $"num".desc)
-)
-df_edit_read_filter.createOrReplaceTempView("sessions_pre_data")
-val sql_song_retrieve= s"""
-select
-    a.*,
-    b.choric_singer,
-    b.songname
-from sessions_pre_data a
-left join (
-    select
-            mixsongid,
-            choric_singer,
-            songname
-    from common.st_k_mixsong_part
-    where dt = '$date_spec'
-    group by
-             mixsongid,
-             choric_singer,
-             songname
-) b
-on a.scid_albumid = b.mixsongid
-"""
-
-val df_edit_read_song = spark.sql(sql_song_retrieve)
-//df_edit_read_song.sort($"num".desc).show()
-//对同一mixsongid，选择数量最大的位置作为主位置。
-import org.apache.spark.sql.expressions.{Window, WindowSpec}
-val window_position = Window.partitionBy("keyword", "scid_albumid").orderBy(desc("num"))
-val df_edit_read_position = (df_edit_read_song.
-     withColumn("position", first($"ivar").over(window_position)).
-     groupBy("keyword", "scid_albumid", "choric_singer", "songname").
-     agg(sum("num").alias("num"), first("position").alias("position")))
-//再对同名的且同位置的不同mixsongid的进行删除，只取数量最大值进行保留
-val window_fold = Window.partitionBy("keyword", "choric_singer", "songname_new", "position").orderBy(desc("num"))
-val df_edit_read_fold = (df_edit_read_position.
-     withColumn("songname_new", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
-     withColumn("mixsongid", first($"scid_albumid").over(window_fold)).
-     filter($"mixsongid" === $"scid_albumid").
-     select("keyword", "scid_albumid", "choric_singer", "songname", "num", "position"))
-//有些位置缺失，应该是调整排序后导致的数据量偏移，不过没有关系，反正最后按照num进行相关度度量
-df_edit_read_fold.persist()
-df_edit_read_fold.createOrReplaceTempView("position_new_click_data")
-df_edit_read_fold.sort($"num".desc).show(40)
+val sql_clickdata_read= s"select keyword, scid_albumid, choric_singer, songname, num, position from "+s"$datatable"+s"_click_data where cdt = '$date_end' and keyword = '倒带'"
+val df_clickdata_read = spark.sql(sql_clickdata_read)
+df_clickdata_read.persist()
+df_clickdata_read.createOrReplaceTempView("position_new_click_data")
+//df_clickdata_read.sort($"num".desc).show(40)
 //6)auquire more feature
 val sql_feature_retrieve= s"""
 select
@@ -422,9 +461,49 @@ left join common.st_k_mixsong_part b
 on a.scid_albumid = b.mixsongid and b.dt = '$date_end'
 """
 
-val df_edit_read_feature = spark.sql(sql_feature_retrieve)
-df_edit_read_feature.persist()
-df_edit_read_feature.sort($"num".desc).show(40)
+val df_clickdata_read_feature = spark.sql(sql_feature_retrieve)
+df_clickdata_read_feature.persist()
+df_clickdata_read_feature.sort($"num".desc).show(40)
+
+val sql_author_read= s"select scid_albumid, author_id from temp.search_authorid where cdt = '$date_end'"
+val df_author_read = spark.sql(sql_author_read)
+df_author_read.persist()
+df_author_read.createOrReplaceTempView("author_data")
+
+val sql_singer_retrieve= s"""
+select
+    a.*,
+    b.singername,
+    b.grade,
+    b.sextype, 
+    b.sorts, 
+    b.sort_offset, 
+    b.edit_sort, 
+    b.bi_sort
+from author_data a
+left join common.k_singer_part b
+on a.author_id = b.singerid and b.dt = '$date_end'
+"""
+val df_singer_read = spark.sql(sql_singer_retrieve)
+//df_singer_read.agg(max(df_singer_read(df_singer_read.columns(5))), min(df_singer_read(df_singer_read.columns(5))), max(df_singer_read(df_singer_read.columns(6))), min(df_singer_read(df_singer_read.columns(6))), max(df_singer_read(df_singer_read.columns(7))), min(df_singer_read(df_singer_read.columns(7))), max(df_singer_read(df_singer_read.columns(8))), min(df_singer_read(df_singer_read.columns(8)))).show()
+
+df_singer_read.persist()
+//采用最大最小，也比较合理
+val df_singer_combine = (df_singer_read.withColumn("grade_new", when($"grade" === "0", 7).otherwise($"grade".cast(IntegerType))).groupBy("scid_albumid").
+                         agg(min("grade_new").alias("grade"),
+                             min("sorts").alias("sorts"),
+                             max("sort_offset").alias("sort_offset"),
+                             min("edit_sort").alias("edit_sort"),
+                             max("bi_sort").alias("bi_sort")))
+val df_clickdata_feature = df_clickdata_read_feature.as("d1").join(df_singer_combine.as("d2"), $"d1.scid_albumid" === $"d2.scid_albumid", "left").select("d1.*", "d2.sorts", "d2.sort_offset", "d2.edit_sort", "d2.bi_sort")
+```
+
+```
++----------+----------+----------------+----------------+--------------+--------------+------------+------------+
+|max(sorts)|min(sorts)|max(sort_offset)|min(sort_offset)|max(edit_sort)|min(edit_sort)|max(bi_sort)|min(bi_sort)|
++----------+----------+----------------+----------------+--------------+--------------+------------+------------+
+|   9999999|         1|           80101|          -79484|       9999999|             1|    28961193|           0|
++----------+----------+----------------+----------------+--------------+--------------+------------+------------+
 ```
 
 
@@ -638,10 +717,10 @@ k_mixsong表提供
     b.songname, 歌曲名
     b.albumid, 专辑id
     b.timelength, 时长
-    b.publish_time, 发行时间
-    b.is_choric, 组曲
+    b.publish_time, 发行时间，会有空缺0000-00-00
+    b.is_choric, 组曲，就是有加号，不过不全，考虑用"+"判断名字
     b.is_single,  原唱
-    b.ownercount,  歌曲的三端+本地播放次数（代表歌曲热度，搜索中的绿色信号）
+    b.ownercount,  歌曲的三端+本地播放次数（代表歌曲热度）
     b.playcount, 歌曲的vip搜索播放次数（代表歌曲热度）
     b.version 版本现场等
 ```
@@ -649,7 +728,7 @@ k_mixsong表提供
 ```
 k_singer表提供
 grade,歌手评级 0:无评级 1:S 2:A 3:B 4:C 5:D 6:E
-sextype, 
+sextype, 歌手类型标识，0=女 1=男 2=乐队等，考虑不用了，似乎类型没啥用
 sorts, 歌手飙升排序
 sort_offset, 歌手飙升排名最近2次的排名偏移值
 edit_sort, 歌手热度排序
@@ -661,7 +740,7 @@ heat_offset,歌手热度排名最近2次的排名偏移值
 ```
 
 ```
-k_album
+k_album，考虑不用，等于就是播放量而已。。。
 hot,专辑歌曲scid搜索播放累加值，仅搜索排序用
 其他字段BI未同步
 sum_ownercount,专辑歌曲mixsongid播放累加值
@@ -673,7 +752,19 @@ dal.listen_pay_songs_d表提供付费试听的mixsongid
 ```
 
 ```
-搜索处国花提供拦截表，其中是由ownercount决定排序，即非该query下决定。但为什么绿色信号不是降序呢？有问题。
+搜索处国花提供拦截表，其中是由ownercount决定排序，即非该query下决定。
+而绿色信号则是round(b.search_play*power(overplay/a.search_play,2),6) as play_last，所以考虑不用。
+```
+
+```
+评论数
+
+```
+
+```
+下载数和红心收藏数
+下载数
+红心收藏数dal.oa_list_songcollect_scid_d_extend是针对scid的没有mixsongid维度的数据，所以无法用。
 ```
 
 
