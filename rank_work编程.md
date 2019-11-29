@@ -126,7 +126,202 @@ df_clickmodelclick_read.filter($"q" === "倒带").sort($"alpha".desc).show()
 
 **见上述scala代码，尝试将阈值设定在1000搜索量以上的比例。进行5比1划分训练与测试集**
 
-777892配对
+最早的计算，关键字下的1000操作量，有777892配对
+
+```scala
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+val date_start = "2019-11-27"
+val date_end = "2019-11-27"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+val sql_feature_read = """select keyword, scid_albumid, scid, choric_singer, songname, num, position, albumid, timelength, publish_time, is_choric, is_single, ownercount, playcount, version, is_vip, audio_play_all, audio_full_play_all, audio_play_first90days, audio_full_play_first90days, audio_download_all, audio_comment, sorts, sort_offset, edit_sort, bi_sort from """+s"""$datatable"""+s"""_features_data where cdt='$date_end'"""
+val df_feature_read = spark.sql(sql_feature_read)
+df_feature_read.persist()
+df_feature_read.filter($"keyword" === "张杰").sort($"num".desc).show()
+
+//Array((keyword,StringType), (scid_albumid,StringType), (scid,StringType), (choric_singer,StringType), (songname,StringType), (num,IntegerType), (position,IntegerType), (albumid,StringType), (timelength,LongType), (publish_time,StringType), (is_choric,StringType), (is_single,StringType), (ownercount,LongType), (playcount,LongType), (version,StringType), (is_vip,IntegerType), (audio_play_all,LongType), (audio_full_play_all,LongType), (audio_play_first90days,LongType), (audio_full_play_first90days,LongType), (audio_download_all,LongType), (audio_comment,LongType), (sorts,IntegerType), (sort_offset,IntegerType), (edit_sort,IntegerType), (bi_sort,IntegerType))
+val window_all = Window.partitionBy("keyword")
+val df_feature_read_total = df_feature_read.withColumn("total", sum($"num").over(window_all))
+
+df_feature_read_total.select("total").distinct().filter($"total" > 1000).count()
+res18: Long = 5095 
+df_feature_read_total.filter($"total" > 1000).count()
+res19: Long = 687599  
+
+df_feature_read.select("is_choric").distinct.show()
+```
+
+##### 异常值null处理
+
+```scala
+import org.apache.spark.sql.types.{IntegerType, LongType}
+import org.apache.spark.sql.functions.datediff
+
+val df_test = df_feature_read.filter($"scid_albumid" =!= "" and $"scid_albumid".isNotNull and $"scid".isNotNull and $"scid" =!= "").filter($"keyword" =!= "" and $"keyword".isNotNull).filter($"choric_singer" =!= "" and $"choric_singer".isNotNull).filter($"songname" =!= "" and $"songname".isNotNull).withColumn("length", $"timelength".cast(LongType)).withColumn("single", convert_label($"is_single")).withColumn("diff", datediff(current_date(), $"publish_time")).withColumn("choric", when($"songname".contains("+"), 0).otherwise(1))
+```
+
+- 加入组曲，标志
+
+```scala
+.withColumn("choric", when($"songname".contains("+"), 0).otherwise(1))
+```
+
+
+
+- 修正类型值
+
+```scala
+withColumn("length", $"timelength".cast(Longtype)).withColumn("single", $"is_single".cast(Integertype))
+//默认将null值设置成0.6中间值
+```
+
+- 修正日期
+
+```scala
+import org.apache.spark.sql.functions.datediff
+.withColumn("diff", datediff(current_date(), $"publish_time"))
+//默认将null值设置成平均值
+```
+
+
+- 滤除scid是null的情况，在之前的程序Clickdata中滤除
+
+```scala
+      filter($"scid_albumid" =!= "" and $"scid_albumid".isNotNull and $"scid".isNotNull and $"scid" =!= "").
+      filter($"keyword" =!= "" and $"keyword".isNotNull).
+```
+
+- 歌手数据同时存在null的情况，四个同时为null，填补其空缺。
+
+```scala
+df_feature_read.filter($"scid".isNotNull).filter($"sorts".isNull).filter($"sort_offset".isNotNull or $"edit_sort".isNotNull or $"bi_sort".isNotNull).show()
+
+df_feature_read.filter($"scid".isNotNull).filter($"sort_offset".isNull).filter($"sorts".isNotNull or $"edit_sort".isNotNull or $"bi_sort".isNotNull).show()
+
+df_feature_read.filter($"scid".isNotNull).filter($"edit_sort".isNull).filter($"sorts".isNotNull or $"sort_offset".isNotNull or $"bi_sort".isNotNull).show()
+
+df_feature_read.filter($"scid".isNotNull).filter($"bi_sort".isNull).filter($"sorts".isNotNull or $"sort_offset".isNotNull or $"edit_sort".isNotNull).show()
+
+```
+
+- 其他未发现null值，但仍然要处理，全部设置成平均值
+
+
+
+#####特征处理方法（相关内容放到了onenote中的sparse feature）
+
+- category feature容易变成高维稀疏数据，不适合gbdt继续工作。
+
+- 高维稀疏特征定义：如果把我们的每一个数据点，想象成一个vector（向量），记作y，对应的feature则可以用另外一个vector来表示，记作x。那么关于稀疏特性的feature（sparse feature），其实 曾博同学已经说得一针见血了....就是x这个向量里面有很多index都是0....而非零的index远小于x的维度（x向量的长度）。
+
+- 不适合的原因：gbdt不适合高维稀疏特征
+  1、高维特征会导致gbdt运行过于耗时，每一次分割时需要比较大量的特征，特征太多，模型训练很耗费时间。
+  2、从高维稀疏特征中难以进行有效的特征空间划分，且对噪音会很敏感。
+
+  想想一个例子，有个年龄特征0~100，如果对这样特征进行one-hot编码后变为稀疏特征，第i维表示是否为i岁。
+
+  如果将这种特征直接输入gbdt然后输出是否是青年人。很显然gbdt将变成枚举各个年龄是否为青年人。这类特征是非常容易过拟合的，如果当训练样本中存在一些噪声样本如80岁的青年人，如果在80岁没有足够的样本，这个错误将被gbdt学到。而如果直接采用连续特征进行分类，gbdt会有更好的泛化性能。
+
+  3、高维稀疏特征大部分特征为0，假设训练集各个样本70%的特征为0，30%的特征非0。则某个维度特征在所有样本上也期望具有近似的取0的比例。当作分裂时，特征选择非常低效，特征只会在少部分特征取值非0的样本上得到有效信息。而稠密向量可以得到样本集的整体特征信息。
+  也就是说：树的分割往往只考虑了少部分特征，大部分的特征都用不到，所有的高维稀疏的特征会造成大量的特征浪费。
+
+  可能无法在这个类别特征上进行切分。使用one-hot coding的话，意味着在每一个决策节点上只能用 one-vs-rest (例如是不是狗，是不是猫，等等) 的切分方式。当特征纬度高时，每个类别上的数据都会比较少，这时候产生的切分不平衡，切分增益（split gain）也会很小（比较直观的理解是，不平衡的切分和不切分几乎没有区别）。 
+
+  会产生样本切分不平衡问题，切分增益会非常小。如，国籍切分后，会产生是否中国，是否美国等一系列特征，这一系列特征上只有少量样本为 1，大量样本为 0。这种划分的增益非常小：较小的那个拆分样本集，它占总样本的比例太小。无论增益多大，乘以该比例之后几乎可以忽略；较大的那个拆分样本集，它几乎就是原始的样本集，增益几乎为零；
+
+  4、会影响决策树的学习。因为就算可以在这个类别特征进行切分，也会把数据切分到很多零散的小空间上，如图1左所示。而决策树学习时利用的是统计信息，在这些数据量小的空间上，统计信息不准确，学习会变差。但如果使用图1右边的切分方法，数据会被切分到两个比较大的空间，进一步的学习也会更好。 
+
+  影响决策树学习：决策树依赖的是数据的统计信息，而独热码编码会把数据切分到零散的小空间上。在这些零散的小空间上统计信息不准确的，学习效果变差。本质是因为独热码编码之后的特征的表达能力较差的，特征的预测能力被人为的拆分成多份，每一份与其他特征竞争最优划分点都失败，最终该特征得到的重要性会比实际值低。
+
+- [category feature的应对方法](https://zhuanlan.zhihu.com/p/40231966 )
+
+    - label encoding
+
+    - - 特征存在内在顺序 (ordinal feature)，is_single采用此方法，默认无法确定的为中间值，1=原唱>4=原唱其他版本 >3,0,6未确定> 2=翻唱 >5=翻唱其他版本 ，变成5，4，3，2，1=>1,0.8,0.6,0.4,0.2
+
+    - one hot encoding
+
+    - - 特征无内在顺序，category数量 < 4，所以is_vip, is_choric用二元特征。
+
+    - target encoding (mean encoding, likelihood encoding, impact encoding)
+
+    - - 特征无内在顺序，category数量 > 4，由于spark没有实现该方法，所以还是采用[ohe](https://blog.csdn.net/wangpei1949/article/details/53140372 )
+
+- 规范化：分位数标准化，即inverse cdf。
+
+  - 考虑要么将昨天的加载进来，fit之后再transform进行增量
+  - 要么索性就对今天的进行重新计算。比如下面代码中的df_test2
+
+- **inputCol:** 需要进行离散化的属性名称
+
+- **inputCols:** 需要进行离散化的一组属性名称，一次处理多个属性的便捷方式
+
+- **outputCol:** 离散化后的属性名称 (默认值: quantileDiscretizer_######_output)
+
+- **outputCols:** 离散化后的属性名称，一次处理多个属性的便捷方式，次序和上面的**inputCols**一致
+
+- **numBuckets:** 需要分成多少个类别(bucket)，分完箱之后每个类别的编号取值范围为0～numBuckets-1 (>=2的整数，默认值: 2)
+
+- **numBucketsArray:** 针对每一个属性需要分成多少个类别(bucket)的值组成的数组，一次处理多个属性的便捷方式，次序和上面的**inputCols**一致
+
+- **handleInvalid:** 表示在transform期间如何处理Null值。 (默认值: error)
+  可选项1. skip-放弃有Null值的row；
+  可选项2. error-抛出异常`org.apache.spark.SparkException: Failed to execute user defined function($anonfun$apply$1: (double) => double)`；
+  可选项3. keep-将Null值都放入一个额外的类别(bucket)，该额外类别编号为**numBuckets**定义的数字。
+
+- **relativeError:** 分位数近似算法的误差精度 ([0,1]之间的实数，0表示没有误差，默认值0.001）
+
+```scala
+import org.apache.spark.ml.feature.QuantileDiscretizer
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, SparkSession, Row}
+import scala.reflect.runtime.universe._
+val date_start = "2019-11-26"
+val date_end = "2019-11-27"
+val edition = "9156"
+val datatable = "temp.jomei_search_cm_9156_click"
+val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
+
+val sql_feature_read = """select keyword, scid_albumid, scid, choric_singer, songname, num, position, albumid, timelength, publish_time, is_choric, is_single, ownercount, playcount, version, is_vip, audio_play_all, audio_full_play_all, audio_play_first90days, audio_full_play_first90days, audio_download_all, audio_comment, sorts, sort_offset, edit_sort, bi_sort from """+s"""$datatable"""+s"""_features_data where cdt='$date_end'"""
+val df_feature_read = spark.sql(sql_feature_read)
+df_feature_read.persist()
+val df_test = df_feature_read.filter($"ownercount".isNotNull).withColumn("oc", $"ownercount".cast("double"))
+val discretizer = (new QuantileDiscretizer()
+  .setInputCol("oc")
+  .setOutputCol("result")
+  .setNumBuckets(101))
+val result = discretizer.fit(df_test).transform(df_test)
+result.filter($"keyword" === "张杰").sort($"num".desc).show()
+result.filter($"keyword" === "一剪梅").sort($"num".desc).select("keyword", "choric_singer", "songname", "num", "position", "ownercount","result").show()
+
+val sql_feature_read2 = """select keyword, scid_albumid, scid, choric_singer, songname, num, position, albumid, timelength, publish_time, is_choric, is_single, ownercount, playcount, version, is_vip, audio_play_all, audio_full_play_all, audio_play_first90days, audio_full_play_first90days, audio_download_all, audio_comment, sorts, sort_offset, edit_sort, bi_sort from """+s"""$datatable"""+s"""_features_data where cdt='$date_start'"""
+val df_feature_read2 = spark.sql(sql_feature_read2)
+df_feature_read2.persist()
+val df_test2 = df_feature_read2.filter($"ownercount".isNotNull).withColumn("oc", $"ownercount".cast("double"))
+val result2 = discretizer.fit(df_test).transform(df_test2)
+result2.filter($"keyword" === "一剪梅").sort($"num".desc).select("keyword", "choric_singer", "songname", "num", "position", "ownercount","result").show()
+```
+
+```scala
+//is_single采用此方法，默认无法确定的为中间值，1=原唱>4=原唱其他版本 >3,0,6未确定> 2=翻唱 >5=翻唱其他版本 ，变成5，4，3，2，1=>1,0.8,0.6,0.4,0.2
+val convert_label = udf{(single: String) =>
+  val t = (single) match {
+    case a if a =="1" => 1.0
+    case a if a =="4" => 0.8
+    case a if List("3", "0", "6").contains(a) => 0.6
+    case a if a =="2" => 0.4
+    case a if a =="5" => 0.2
+    case _ => 0.6
+  }
+  t
+}
+df_feature_read.withColumn("single", convert_label($"is_single"))
+```
+
+
 
 #### 开发的spark代码临时用
 
@@ -439,9 +634,9 @@ val edition = "9156"
 val datatable = "temp.jomei_search_cm_9156_click"
 val thisdatatable = "temp.jomei_search_clickmodel_9156_click"
 val date_spec = date_end
-val sql_clickdata_read= s"select keyword, scid_albumid, choric_singer, songname, num, position from "+s"$datatable"+s"_click_data where cdt = '$date_end' and keyword = '倒带'"
+val sql_clickdata_read= s"select keyword, scid_albumid, choric_singer, songname, num, position from "+s"$datatable"+s"_click_data where cdt = '$date_end' and keyword = '张杰'"
 val df_clickdata_read = spark.sql(sql_clickdata_read)
-df_clickdata_read.persist()
+//df_clickdata_read.persist()
 df_clickdata_read.createOrReplaceTempView("position_new_click_data")
 //df_clickdata_read.sort($"num".desc).show(40)
 //6)auquire more feature
@@ -467,7 +662,7 @@ df_clickdata_read_feature.sort($"num".desc).show(40)
 
 val sql_author_read= s"select scid_albumid, author_id from temp.search_authorid where cdt = '$date_end'"
 val df_author_read = spark.sql(sql_author_read)
-df_author_read.persist()
+//df_author_read.persist()
 df_author_read.createOrReplaceTempView("author_data")
 
 val sql_singer_retrieve= s"""
@@ -487,7 +682,7 @@ on a.author_id = b.singerid and b.dt = '$date_end'
 val df_singer_read = spark.sql(sql_singer_retrieve)
 //df_singer_read.agg(max(df_singer_read(df_singer_read.columns(5))), min(df_singer_read(df_singer_read.columns(5))), max(df_singer_read(df_singer_read.columns(6))), min(df_singer_read(df_singer_read.columns(6))), max(df_singer_read(df_singer_read.columns(7))), min(df_singer_read(df_singer_read.columns(7))), max(df_singer_read(df_singer_read.columns(8))), min(df_singer_read(df_singer_read.columns(8)))).show()
 
-df_singer_read.persist()
+//df_singer_read.persist()
 //采用最大最小，也比较合理
 val df_singer_combine = (df_singer_read.withColumn("grade_new", when($"grade" === "0", 7).otherwise($"grade".cast(IntegerType))).groupBy("scid_albumid").
                          agg(min("grade_new").alias("grade"),
@@ -496,6 +691,8 @@ val df_singer_combine = (df_singer_read.withColumn("grade_new", when($"grade" ==
                              min("edit_sort").alias("edit_sort"),
                              max("bi_sort").alias("bi_sort")))
 val df_clickdata_feature = df_clickdata_read_feature.as("d1").join(df_singer_combine.as("d2"), $"d1.scid_albumid" === $"d2.scid_albumid", "left").select("d1.*", "d2.sorts", "d2.sort_offset", "d2.edit_sort", "d2.bi_sort")
+
+df_clickdata_feature.persist()
 ```
 
 ```
@@ -504,6 +701,102 @@ val df_clickdata_feature = df_clickdata_read_feature.as("d1").join(df_singer_com
 +----------+----------+----------------+----------------+--------------+--------------+------------+------------+
 |   9999999|         1|           80101|          -79484|       9999999|             1|    28961193|           0|
 +----------+----------+----------------+----------------+--------------+--------------+------------+------------+
+```
+
+相关hive
+
+```shell
+#!/bin/bash
+source $BIPROG_ROOT/bin/shell/common.sh
+vDay=${DATA_DATE} #yesterday
+yyyy_mm_dd_1=`date -d "$vDay" +%Y-%m-%d` #yesterday
+yyyy_mm_dd_3=`date -d "$vDay -2 days" +%Y-%m-%d` #three days
+sql="
+set mapreduce.job.queuename=${q};
+use temp;
+create table if not exists temp.search_authorid
+(
+      scid_albumid string,
+      author_id string
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile;
+insert overwrite table temp.search_authorid partition (cdt='${yyyy_mm_dd_1}')
+select 
+        a.scid_albumid, 
+        b.author_id
+from (
+        select 
+                scid_albumid
+        from temp.jomei_search_cm_9156_click_clicks_data
+        where cdt='${yyyy_mm_dd_1}'
+        group by scid_albumid
+)a
+left join common.canal_k_album_audio_author b 
+where a.scid_albumid=b.album_audio_id
+"
+hive -e "$sql"
+```
+
+####30秒与点击
+
+用戴的表不好，因为只记录第一个，很多为null，改用我自己的30秒有效表。
+
+
+```scala
+val sql_query = s"""
+select 
+    inputstring, 
+    result_id, 
+    count(1) as cnt
+from (
+    select  
+        case when trim(hint_type)='1' then hint_key
+        else regexp_replace(regexp_replace(inputstring,'\\n|\\t',''),'\\\\|','') end inputstring,  
+        result_id
+    from dcl.st_valid_search_d
+    where dt='${date_end}'
+    and pt='android'
+    and area='单曲'
+    and result_id IS Not NULL
+    and cast(is_valid as int)=1
+    and cast(filenameindex as int)>0
+) a
+group by inputstring, result_id
+"""
+val df_query = spark.sql(sql_query)
+val df = df_test.as("d1").join(df_query.as("d2"),  ($"d1.scid_albumid" === $"d2.result_id" and $"d1.keyword" === $"d2.inputstring"), "left").select("d1.*", "d2.cnt")
+df.filter($"keyword" === "倒带").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "position", "cnt").show()
+
+//改用下面的方法
+val sql_sessions_read= s"select q, u, r, d, c, s, cnt, choric_singer, songname from "+s"$datatable"+s"_sessions where cdt between "+s"'$date_end' and '$date_end'"
+//只关心c为true的情况，因为这里只关心点击，不关心位置rd
+val df_sessions_read = (spark.sql(sql_sessions_read).
+ groupBy("q", "u", "choric_singer", "songname").
+ agg(sum("cnt").alias("num"))
+)
+
+//两个本地和搜索作为两个特征
+val df_sessions_read = (spark.sql(sql_sessions_read).
+ groupBy("q", "u", "choric_singer", "songname").
+ agg(sum("cnt").alias("cnt"))
+)
+val df = df_test.as("d1").join(df_sessions_read.as("d2"),  ($"d1.scid_albumid" === $"d2.u" and $"d1.keyword" === $"d2.q"), "left").select("d1.*", "d2.cnt")
+df.filter($"keyword" === "牛奶面包").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "position", "cnt").show()
+//虽然短视频可能30秒更有优势，考虑后面再更换特征，目前下面这个例子还可以，第二首还是比下面的短歌cnt高的
+
++-------+------------+--------+--------------+--------------------+----+--------+----+
+|keyword|scid_albumid|    scid| choric_singer|            songname| num|position| cnt|
++-------+------------+--------+--------------+--------------------+----+--------+----+
+|   牛奶面包|   182439882|57643189|         李现、杨紫|This is Gun+牛奶面包 ...|6446|       1|8686|
+|   牛奶面包|   175187789|57080111|           曾雪晴|                牛奶面包|5936|       2|7118|
+|   牛奶面包|   225540408|61662951|            杨紫|           牛奶面包 (片段)|3159|       4|3338|
+|   牛奶面包|   183396570|57335992|           苏小念|                牛奶面包|2873|       3|4526|
+|   牛奶面包|   177425628|57308775|            李现|         牛奶面包 (Live)|1659|       5|1982|
+|   牛奶面包|   179942340|57428159|           兔子牙|         牛奶面包 (Live)| 804|       6| 978|
+|   牛奶面包|   179198281|57379545|           红格格|                牛奶面包| 489|       7| 536|
+|   牛奶面包|   190447283|58355992|           董嘉鸿|                牛奶面包|  57|       8| 149|
+|   牛奶面包|   184721493|57836611|           蓝七七|                牛奶面包|  35|      11|  91|
 ```
 
 
@@ -704,7 +997,36 @@ left join (
 on a.u = b.mixsongid
 ```
 
-#### 特征工程中用到的数据源
+#### 特征工程中用到的数据源（目前的想法）
+
+**目前特征，~~本想再加入之前query下的播放量，但是想了想似乎不适合那些新的query计算。干脆不用了。反正那些也是可以考虑说本身播放量，测试下下过看看是否要加入该特征~~。微软中还是有query-url的属性的，所以我们也加入，如果为0则采用平均值（前一天或前一次lightgbm模型保存）填充。目前暂时用30秒的，以后考虑更改点击计算（[相关说明](#30秒与点击) ）。**
+
+```
+length,歌曲长度
+diff,发布时间间隔日
+choric,组曲
+single,原唱翻唱
+ownercount,日歌曲的三端+本地播放次数
+playcount,日歌曲的vip搜索播放次数
+version,版本
+is_vip,vip与否
+audio_play_all,累计的播放量
+audio_full_play_all,累计完整播放量
+audio_play_first90days,首发90天播放量（从有播放量开始算）
+audio_full_play_first90days,首发90天完整播放量（从有播放量开始算）
+audio_download_all,累计下载量
+audio_comment,累计评论量（前端口径）
+sorts, 歌手飙升排序
+sort_offset, 歌手飙升排名最近2次的排名偏移值
+edit_sort, 歌手热度排序
+bi_sort, 歌手歌曲播放量累加值，降序
+query_search, 日query下的有效搜索次数
+query_play, 日query下的有效播放次数
+```
+
+
+
+对同一scid的数据可以考虑进行消除。
 
 ```
 k_mixsong的singerid是没用的，因为复合歌手是一个单独的id，使用mixsongid查询k_album_audio_author，得到author_id，表示分别两个歌手的id。
@@ -713,6 +1035,7 @@ k_mixsong的singerid是没用的，因为复合歌手是一个单独的id，使�
 
 ```
 k_mixsong表提供
+    b.scid, 对应多个scid_albumid
     b.choric_singer, 歌手名
     b.songname, 歌曲名
     b.albumid, 专辑id
@@ -720,8 +1043,8 @@ k_mixsong表提供
     b.publish_time, 发行时间，会有空缺0000-00-00
     b.is_choric, 组曲，就是有加号，不过不全，考虑用"+"判断名字
     b.is_single,  原唱
-    b.ownercount,  歌曲的三端+本地播放次数（代表歌曲热度）
-    b.playcount, 歌曲的vip搜索播放次数（代表歌曲热度）
+    b.ownercount,  日歌曲的三端+本地播放次数（代表歌曲热度）
+    b.playcount, 日歌曲的vip搜索播放次数（代表歌曲热度）
     b.version 版本现场等
 ```
 
@@ -748,23 +1071,114 @@ sum_ownercount,专辑歌曲mixsongid播放累加值
 
 ```
 dal.listen_pay_songs_d表提供付费试听的mixsongid
-
+存在的mixsongid就是付费试听的
 ```
 
 ```
 搜索处国花提供拦截表，其中是由ownercount决定排序，即非该query下决定。
 而绿色信号则是round(b.search_play*power(overplay/a.search_play,2),6) as play_last，所以考虑不用。
+
+生成的python代码见下面：
+create table temp.jintercept (intercept string);
+load data local inpath'/data1/baseDepSarch/keyword_intercept/intercept.txt' overwrite into table temp.jintercept;
+
+```
+
+```python
+import pandas as pd
+#存在编码问题 儿童歌曲 幼儿园中会出现\xa0
+tag_list = pd.read_excel("标签拦截导出表_1574393888.xls", encoding="utf-8")["标签"].tolist()
+keyword_list=[keyword.replace('\xa0', ' ') for tag in tag_list for keyword in tag.split("|")]    
+with open("intercept.txt", "w", encoding='utf-8') as f:
+    for k in keyword_list:
+        f.write(k)
+        f.write("\n")
 ```
 
 ```
-评论数
+评论数，考虑不用
+评论表ddl.dt_special_songcomments_new_part
+group by下mixsongid，然后count下，就能得到从7月份加入mixsongid后截止dt=2019-11-25时的评论总数，不用此数据，因为这个其实同一scid享有同样的数据。
+select 
+        album_audio_id, 
+        count(album_audio_id) as num_remark, 
+        sum(weight) as weight_remark
+from (
+        select 
+                get_json_object(friday,"""+"""'$.album_audio_id'"""+s""") as album_audio_id, 
+                weight
+        from ddl.dt_special_songcomments_new_part
+        WHERE dt='$date_end' 
+        and status='1'
+)f
+group by album_audio_id
 
+select 
+        e.*,
+        g.num_remark,
+        g.weight_remark
+from(
+        select
+                c.*,
+                CASE
+                    WHEN d.mixsongid IS NULL
+                    THEN 0
+                    ELSE 1
+                END as is_vip
+        from (
+                select
+                    a.*,
+                    b.scid,
+                    b.albumid,
+                    b.timelength, 
+                    b.publish_time, 
+                    b.is_choric, 
+                    b.is_single, 
+                    b.ownercount, 
+                    b.playcount, 
+                    b.version
+                from position_new_click_data a
+                left join common.st_k_mixsong_part b
+                on a.scid_albumid = b.mixsongid and b.dt = '$date_end'
+        )c 
+        LEFT JOIN dal.listen_pay_songs_d d 
+        on (c.scid_albumid = d.mixsongid 
+            and d.dt='$date_end')
+)e
+LEFT JOIN (
+        select 
+                album_audio_id, 
+                count(album_audio_id) as num_remark, 
+                sum(weight) as weight_remark
+        from (
+                select 
+                        get_json_object(friday,"""+"""'$.album_audio_id'"""+s""") as album_audio_id, 
+                        weight
+                from ddl.dt_special_songcomments_new_part
+                WHERE dt='$date_end' 
+                and status='1'
+        )f
+        group by album_audio_id
+)g
+where e.scid_albumid=g.album_audio_id
 ```
 
 ```
-下载数和红心收藏数
-下载数
+对同一scid的歌曲，会在搜索结果中进行折叠
+下载数和红心收藏数oa_scid_addtime_and_allplay_d
+下载数也米有，只有当天的数据，那就和ownercount没啥区别了，考虑不用了。。。
 红心收藏数dal.oa_list_songcollect_scid_d_extend是针对scid的没有mixsongid维度的数据，所以无法用。
+```
+
+```
+来自于表describe dal.oa_scid_addtime_and_allplay_d
+audio_play_all          bigint                  累计的播放领              
+audio_full_play_all     bigint                  累计完整播放量             
+audio_play_first90days  bigint                  首发90天播放量（从有播放量开始算）  
+audio_full_play_first90days     bigint                  首发90天完整播放量（从有播放量开始算）
+audio_download_all      bigint                  累计下载量               
+audio_comment           bigint                  累计评论量（前端口径）
+
 ```
 
 
@@ -1549,7 +1963,3 @@ where album_audio_id = '105077632'
 - [docker容器下配置jupyter notebook](https://blog.csdn.net/leng_yan/article/details/87208363 )
 - [用docker启动一个jupyter notebook](https://www.jianshu.com/p/21d5afc1c079 )
 - [mount from docker](https://superuser.com/a/907953)
-
-
-
-[#还是考虑query与目前召回中的进行对比，从而得到分词结果。必须得分词]: 
