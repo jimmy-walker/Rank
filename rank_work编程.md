@@ -154,13 +154,64 @@ res19: Long = 687599
 df_feature_read.select("is_choric").distinct.show()
 ```
 
-##### 异常值null处理
+##### 异常值null处理（其他都是最小值，除了diff用365天和50年，因为用平均会发现很大）
+
+```scala
+//用平均会发现，3000天，太大
+df_feature_filtered.groupBy("scid_albumid").agg(max("diff") as "diff").as("d1").agg(avg($"d1.diff")).show()
+
+//滤除掉50年内仍然很大，2900天
+df_feature_filtered_pre.filter($"diff" <= 18250).groupBy("scid_albumid").agg(max("diff") as "diff").as("d1").agg(avg($"d1.diff")).show()
+```
+
+针对此情况，进行分类讨论，**分别计算sing，song，singersong的平均diff，剔除大diff的情况下。对于大diff的情况，进行计算singersong和singer，若无则统计到50年；对于null的情况，进行计算singersong和song，若无则统计到1年。若使用singerid会很麻烦，先这么干吧**
+
+```scala
+    val window_singersong = Window.partitionBy("choric_singer", "song")
+    val window_song = Window.partitionBy("song")
+    val window_singer = Window.partitionBy("choric_singer")
+    val df_feature_filtered = df_feature_filtered_pre.withColumn("song", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
+      withColumn("diff_limited",
+        when($"diff" <= 18250,
+          $"diff").
+          otherwise(null)).
+      withColumn("avg_diff_singersong", avg("diff_limited").over(window_singersong)).
+      withColumn("avg_diff_song", avg("diff_limited").over(window_song)).
+      withColumn("avg_diff_singer", avg("diff_limited").over(window_singer)).
+      withColumn("final_diff",
+        when($"diff".isNotNull,
+          when($"diff" <= 18250, $"diff").
+            otherwise(
+              when($"avg_diff_singersong".isNotNull, $"avg_diff_singersong").
+                otherwise(
+                  when($"avg_diff_singer".isNotNull, $"avg_diff_singer").
+                    otherwise(18250)))).
+          otherwise(
+            when($"avg_diff_singersong".isNotNull, $"avg_diff_singersong").
+              otherwise(
+                when($"avg_diff_song".isNotNull, $"avg_diff_song").
+                  otherwise(365))))
+
+```
+
+
+
+
 
 ```scala
 import org.apache.spark.sql.types.{IntegerType, LongType}
 import org.apache.spark.sql.functions.datediff
 
 val df_test = df_feature_read.filter($"scid_albumid" =!= "" and $"scid_albumid".isNotNull and $"scid".isNotNull and $"scid" =!= "").filter($"keyword" =!= "" and $"keyword".isNotNull).filter($"choric_singer" =!= "" and $"choric_singer".isNotNull).filter($"songname" =!= "" and $"songname".isNotNull).withColumn("length", $"timelength".cast(LongType)).withColumn("single", convert_label($"is_single")).withColumn("diff", datediff(current_date(), $"publish_time")).withColumn("choric", when($"songname".contains("+"), 0).otherwise(1))
+
+    val null_map = Map("ownercount" -> 0, "playcount" -> 0, "audio_play_all" -> 0,
+      "audio_full_play_all" -> 0, "audio_play_first90days" -> 0, "audio_full_play_first90days" -> 0,
+      "audio_download_all" -> 0, "audio_comment" -> 0, "sorts" -> 9999999,
+      "sort_offset" -> 0, "edit_sort" -> 9999999, "bi_sort" -> 0,
+      "diff" -> 30)
+
+对于日期缺失的作为30天处理
+
 ```
 
 - 加入组曲，标志
@@ -171,11 +222,12 @@ val df_test = df_feature_read.filter($"scid_albumid" =!= "" and $"scid_albumid".
 
 
 
-- 修正类型值
+- 修正类型值（**不需要了timelength后来自动变成longtype，此外single变成了数值**）
 
 ```scala
 withColumn("length", $"timelength".cast(Longtype)).withColumn("single", $"is_single".cast(Integertype))
 //默认将null值设置成0.6中间值
+
 ```
 
 - 修正日期
@@ -184,6 +236,7 @@ withColumn("length", $"timelength".cast(Longtype)).withColumn("single", $"is_sin
 import org.apache.spark.sql.functions.datediff
 .withColumn("diff", datediff(current_date(), $"publish_time"))
 //默认将null值设置成平均值
+//若是常数，则使用lit("2019-10-28")
 ```
 
 
@@ -248,7 +301,7 @@ df_feature_read.filter($"scid".isNotNull).filter($"bi_sort".isNull).filter($"sor
 
     - target encoding (mean encoding, likelihood encoding, impact encoding)
 
-    - - 特征无内在顺序，category数量 > 4，由于spark没有实现该方法，所以还是采用[ohe](https://blog.csdn.net/wangpei1949/article/details/53140372 )
+    - - 特征无内在顺序，category数量 > 4，由于spark没有实现该方法，所以version还是采用[ohe](https://blog.csdn.net/wangpei1949/article/details/53140372 )
 
 - 规范化：分位数标准化，即inverse cdf。
 
@@ -319,6 +372,357 @@ val convert_label = udf{(single: String) =>
   t
 }
 df_feature_read.withColumn("single", convert_label($"is_single"))
+```
+######特征转换代码，总体思路：用分位数转换，然后使用minmax进行线性平移，变换到[0-1]
+
+```scala
+    //7)related function and val
+
+    val null_map = Map("ownercount" -> 0, "playcount" -> 0, "audio_play_all" -> 0,
+      "audio_full_play_all" -> 0, "audio_play_first90days" -> 0, "audio_full_play_first90days" -> 0,
+      "audio_download_all" -> 0, "audio_comment" -> 0, "sorts" -> 9999999, "sort_offset" -> 0,
+      "edit_sort" -> 9999999, "bi_sort" -> 0, "search_cnt" -> 0, "local_cnt" -> 0, "version" -> "0")
+
+    val changes_column = List("timelength", "final_ownercount", "final_playcount",
+      "final_audio_play_all", "final_audio_full_play_all", "final_audio_play_first90days",
+      "final_audio_full_play_first90days", "final_audio_download_all", "final_audio_comment",
+      "sorts", "sort_offset", "edit_sort", "bi_sort", "final_search_cnt", "final_local_cnt",
+      "final_diff")
+    val maintain_column = List("keyword", "scid_albumid", "scid", "choric_singer", "songname", "version", "single")
+    val maintain2_column = List("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "version", "is_vip", "single", "choric")
+
+    def func_combine(name: String) = {
+      if (maintain_column.contains(name)){
+        col(name)
+      }
+      else{
+        col(name).cast(DoubleType)
+      }
+    }
+    val result_column = maintain2_column.toArray ++ changes_column.toArray.map(c => s"${c}_disc") ++ Array("featuresArr")
+
+    val vecToArray = udf( (xs: linalg.Vector) => xs.toArray )
+    // sizeof `elements` should be equal to the number of entries in column `features`
+    val elements = changes_column.toArray
+    val sqlExpr_basic = maintain2_column.toArray.map{ case (name) => col(name)}
+    // Create a SQL-like expression using the array
+    val sqlExpr = elements.zipWithIndex.map{ case (alias, idx) => bround(col("featuresArr").getItem(idx), 2).as(alias) }
+
+    val convert_version = udf{(version: String) =>
+      val version_new = version match {
+        case a if List("-2", "-1", "10", "14", "15").contains(a) => 0.0 //cause 10, 14, 15 not exists in traing test
+        case a if List("-4", "-3", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "12", "13").contains(a) => Math.abs(a.toDouble)
+        case a if a == "16" => 10.0 //just fill the 10
+        case _ => 0.0
+      }
+      version_new
+    }
+
+    //is_single采用此方法，默认无法确定的为中间值，1=原唱>4=原唱其他版本 >3,0,6未确定> 2=翻唱 >5=翻唱其他版本 ，变成5，4，3，2，1=>1,0.8,0.6,0.4,0.2
+    val convert_label = udf{(single: String) =>
+      val label_int = (single) match {
+        case a if a =="1" => 1.0
+        case a if a =="4" => 0.8
+        case a if List("3", "0", "6").contains(a) => 0.6
+        case a if a =="2" => 0.4
+        case a if a =="5" => 0.2
+        case _ => 0.6
+      }
+      label_int
+    }
+
+    val change_version = udf{(version: Double, item: Double) =>
+      if (version == item) 1.0 else 0.0
+    }
+
+    val targetColumns = Map("undo" -> 0.0, "danqu" -> 1.0, "xianchang" -> 2.0, "lingsheng" -> 3.0,
+      "banzou" -> 4.0, "dj" -> 5.0, "quyi" -> 6.0, "xiju" -> 7.0, "hunyin" -> 8.0, "chunyinyue" -> 9.0,
+      "pianduan" -> 10.0, "yousheng" -> 11.0, "guagnchangwu" -> 12.0, "xiaoyin" -> 13.0
+    )
+
+    val final_column = (List("keyword", "scid_albumid", "scid", "choric_singer",
+  "songname", "num", "is_vip", "single", "choric").toArray ++
+  changes_column.toArray[String] ++
+  targetColumns.keys.toArray[String]).map{case (name) => col(name)}
+
+    //8)feature transformation
+    val sql_feature_data_read= s"select keyword, scid_albumid, scid, choric_singer, songname, num, position, albumid, timelength, publish_time, is_choric, is_single, ownercount, playcount, version, is_vip, audio_play_all, audio_full_play_all, audio_play_first90days, audio_full_play_first90days, audio_download_all, audio_comment, sorts, sort_offset, edit_sort, bi_sort, search_cnt, local_cnt from "+s"$datatable"+s"_features_datas where cdt = '$date_end'"
+    val df_clickdata_features_read = spark.sql(sql_feature_data_read)
+
+
+    //format transformation
+    //single, diff, choric
+    val df_feature_formated = df_clickdata_features_read.
+      withColumn("single", convert_label($"is_single")).
+//      withColumn("diff", datediff(current_date(), $"publish_time")).
+      withColumn("diff", datediff(lit(s"$date_after"), $"publish_time")).
+      withColumn("choric", when($"songname".contains("+"), 0).otherwise(1)).
+      select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num",
+        "timelength", "ownercount", "playcount", "version", "is_vip", "audio_play_all",
+        "audio_full_play_all", "audio_play_first90days", "audio_full_play_first90days",
+        "audio_download_all", "audio_comment", "sorts", "sort_offset", "edit_sort",
+        "bi_sort", "search_cnt", "local_cnt", "single", "diff", "choric")
+
+    //filter unnormal point
+
+    val df_feature_filtered_pre = df_feature_formated.
+      filter($"timelength".isNotNull and $"timelength" > 0).
+      filter($"ownercount" >= 0).
+      filter($"playcount" >= 0).
+      filter($"audio_play_all" >= 0).
+      filter($"audio_full_play_all" >= 0).
+      filter($"audio_play_first90days" >= 0).
+      filter($"audio_full_play_first90days" >= 0).
+      filter($"audio_download_all" >= 0).
+      filter($"audio_comment" >= 0).
+      filter($"sorts" >=1 and $"sorts" <= 9999999).
+      filter($"edit_sort" >=1 and $"edit_sort" <= 9999999).
+      filter($"sorts" >=1 and $"sorts" <= 9999999).
+      filter($"bi_sort" >= 0).
+      filter($"diff" >= 0 or $"diff".isNull).
+      na.fill(null_map)
+
+    //diff
+    //对于大diff的情况，进行计算singersong和singer，若无则统计到50年；
+    // 对于null的情况，进行计算singersong和song，若无则统计到1年。
+    val window_singersong = Window.partitionBy("choric_singer", "song")
+    val window_song = Window.partitionBy("song")
+    val window_singer = Window.partitionBy("choric_singer")
+    val df_feature_filtered = df_feature_filtered_pre.withColumn("song", regexp_replace($"songname", "[ ]*\\([^\\(\\)]*\\)$", "")).
+      withColumn("diff_limited",
+        when($"diff" <= s"$diff_max",
+          $"diff").
+          otherwise(null)).
+      withColumn("avg_diff_singersong", avg("diff_limited").over(window_singersong)).
+      withColumn("avg_diff_song", avg("diff_limited").over(window_song)).
+      withColumn("avg_diff_singer", avg("diff_limited").over(window_singer)).
+      withColumn("final_diff",
+        when($"diff".isNotNull,
+          when($"diff" <= s"$diff_max", $"diff").
+            otherwise(
+              when($"avg_diff_singersong".isNotNull, $"avg_diff_singersong").
+                otherwise(
+                  when($"avg_diff_singer".isNotNull, $"avg_diff_singer").
+                    otherwise(s"$diff_max")))).
+          otherwise(
+            when($"avg_diff_singersong".isNotNull, $"avg_diff_singersong").
+              otherwise(
+                when($"avg_diff_song".isNotNull, $"avg_diff_song").
+                  otherwise(s"$diff_miss")))).
+      withColumn("final_ownercount",
+        when($"final_diff" === 0, 0).
+          otherwise($"ownercount")).
+      withColumn("final_playcount",
+        when($"final_diff" === 0, 0).
+          otherwise($"playcount")).
+      withColumn("final_audio_play_all",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_play_all")).
+      withColumn("final_audio_full_play_all",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_full_play_all")).
+      withColumn("final_audio_play_first90days",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_play_first90days")).
+      withColumn("final_audio_full_play_first90days",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_full_play_first90days")).
+      withColumn("final_audio_download_all",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_download_all")).
+      withColumn("final_audio_comment",
+        when($"final_diff" === 0, 0).
+          otherwise($"audio_comment")).
+      withColumn("final_search_cnt",
+        when($"final_diff" === 0, 0).
+          otherwise($"search_cnt")).
+      withColumn("final_local_cnt",
+        when($"final_diff" === 0, 0).
+          otherwise($"local_cnt")).
+      select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num",
+        "timelength", "final_ownercount", "final_playcount", "version", "is_vip",
+        "final_audio_play_all", "final_audio_full_play_all", "final_audio_play_first90days",
+        "final_audio_full_play_first90days", "final_audio_download_all", "final_audio_comment",
+        "sorts", "sort_offset", "edit_sort", "bi_sort", "final_search_cnt", "final_local_cnt",
+        "single", "final_diff", "choric")
+
+    //filter by count by threshold_keyword and cast some column to Double
+    val window_all = Window.partitionBy("keyword")
+    val df_total_feature = df_feature_filtered.
+      withColumn("total", sum($"num").over(window_all)).
+      filter($"total" > s"$threshold_keyword").
+      select(df_feature_filtered.columns.map(name => func_combine(name)): _*)
+
+    df_total_feature.persist() //cause model.fit is an action, we persist to avoid repeat calculation
+
+    //QuantileDiscretizer and MinMax
+    val discretizer = new QuantileDiscretizer().
+      setInputCols(changes_column.toArray).
+      setOutputCols(changes_column.toArray.map(c => s"${c}_disc")).
+      setNumBuckets(101)
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 46 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 84 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 87 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 80 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 87 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 97 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 83 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 14 buckets as a result.
+    //    19/12/03 17:46:25 WARN QuantileDiscretizer: Some quantiles were identical. Bucketing to 95 buckets as a result.
+
+    val assembler = new VectorAssembler().
+      setInputCols(changes_column.toArray.map(c => s"${c}_disc")).
+      setOutputCol("features")
+
+    val scaler = new MinMaxScaler().
+      setInputCol("features").
+      setOutputCol("scaledFeatures").
+      setMax(1).
+      setMin(0)
+
+    //version
+
+    val pipeline = new Pipeline().setStages(Array(discretizer, assembler, scaler))
+    val model = pipeline.fit(df_total_feature) //is transformation not action!
+    val df_feature_transformed = model.transform(df_total_feature).
+      withColumn("featuresArr" , vecToArray($"scaledFeatures")).
+      select(result_column.map(name => col(name)): _*).
+      select(sqlExpr_basic ++ sqlExpr : _*).
+      withColumn("version_new", convert_version($"version"))
+
+    val resultDf = targetColumns.foldLeft(df_feature_transformed){
+      case (df, (k, v)) =>
+        df.withColumn(k, change_version($"version_new", lit(v)))
+    }.select(final_column: _*)
+
+```
+
+
+
+
+
+#####~~新值填补，使用之前的平均数~~直接修改训练集，采用第二天的数据。1,2,3三天，第3天计算，拿第2天的num，结合第2天算出来的特征，进行组合。
+
+下面这些为0值遇到新歌，就保持为0值吧（final_diff为0的情况），除了歌手的sorts系列。
+
+![](picture/为0值.png)
+
+比如小阿枫这首久违，12月4号上线。那么12月3号的特征中是有这首歌曲的，但是没有关键字“久违”，只有关键字“小阿枫”，但是用4号数据作为参考值，能够排在第一位。达到了效果。
+
+```scala
+    //save average of specific column to be used later
+//    "ownercount", "playcount", "audio_play_all", "audio_full_play_all",
+//    "audio_play_first90days", "audio_full_play_first90days",
+//    "audio_download_all", "audio_comment", "sorts", "sort_offset",
+//    "edit_sort", "bi_sort", "search_cnt", "local_cnt",
+
+scala> df_final.filter($"keyword" === "李宇春").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "final_diff", "grade").show()
++-------+------------+--------+-------------------------------------+---------------------------+----+----------+-----+
+|keyword|scid_albumid|    scid|                        choric_singer|                   songname| num|final_diff|grade|
++-------+------------+--------+-------------------------------------+---------------------------+----+----------+-----+
+| 李宇春|   240765221|63831777|                               李宇春|               如果我不是我|1191|       0.0|  5.0|
+| 李宇春|    42192006| 4207777|                               李宇春|    下个,路口,见 (吉特巴版)| 692|      0.46|  2.0|
+
+scala> df_final.filter($"keyword" === "小阿枫").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "final_diff", "grade").show()
++-------+------------+--------+-------------+---------------------+-----+----------+-----+
+|keyword|scid_albumid|    scid|choric_singer|             songname|  num|final_diff|grade|
++-------+------------+--------+-------------+---------------------+-----+----------+-----+
+| 小阿枫|   240146523|63780711|       小阿枫|                 久违|25524|       0.0|  5.0|
+```
+
+###### 合并代码及relevance计算代码，思路是利用log10函数减少第一个的马太效应，再进行归一化。
+
+```scala
+    //====================================================================
+    //1) read click data of today(data_end)
+    val sql_clickdata_read= s"select keyword, scid_albumid, scid, choric_singer, songname, num, position from "+s"$datatable"+s"_clicks_data where cdt = '$date_end'"
+    val df_clickdata_read = spark.sql(sql_clickdata_read)
+
+    //2) check existence of feature data of yesterday(data_before)
+    // spark.sql("SHOW PARTITIONS "+s"$datatable"+s"_feature_result_data PARTITION(cdt='$date_after')")
+    val data_before_empty = spark.sql("SHOW PARTITIONS "+s"$datatable"+s"_feature_result_data PARTITION(cdt='$date_before')").head(1).isEmpty
+
+    // if feature not exist close the spark and return
+    if (data_before_empty){
+      println("table "+s"$datatable"+"_feature_result_data of "+s"$date_before"+" is empty")
+      spark.stop()
+      return
+    }
+
+    println("table "+s"$datatable"+"_feature_result_data of "+s"$date_before"+" exists")
+    //3) read feature data of yesterday(data_before) without num field
+    val sql_feature_result_read= s"select keyword, scid_albumid, scid, choric_singer, songname, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from "+s"$datatable"+s"_feature_result_data where cdt = '$date_before'"
+    val resultDf_read = spark.sql(sql_feature_result_read)
+
+    val finalDf = resultDf_read.as("d1").
+      join(df_clickdata_read.as("d2"),
+        $"d1.keyword" === $"d2.keyword" and
+          $"d1.scid_albumid" === $"d2.scid_albumid",
+        "left").
+      select("d1.*", "d2.num").
+      filter($"num".isNotNull)
+
+//    val max_grade = 5
+    val window_keyword = Window.partitionBy("keyword")
+    val df_final = finalDf.withColumn("log", log10($"num").cast(DoubleType)).
+      withColumn("maxlog", max("log").over(window_keyword).cast(DoubleType)).
+      withColumn("gradelog", round(lit(max_grade) * ($"log"/$"maxlog")).cast(DoubleType))
+
+    df_final.createOrReplaceTempView("final_combine_data")
+
+```
+
+
+
+##### 数据探索
+
+```scala
+df_feature_formated.agg(
+max(df_feature_formated("timelength")), 
+min(df_feature_formated("timelength")),
+max(df_feature_formated("diff")), 
+min(df_feature_formated("diff")),
+max(df_feature_formated("choric")), 
+min(df_feature_formated("choric")),
+max(df_feature_formated("ownercount")), 
+min(df_feature_formated("ownercount")),
+max(df_feature_formated("playcount")), 
+min(df_feature_formated("playcount")),
+max(df_feature_formated("is_vip")), 
+min(df_feature_formated("is_vip")),
+max(df_feature_formated("audio_play_all")), 
+min(df_feature_formated("audio_play_all")),
+max(df_feature_formated("audio_full_play_all")), 
+min(df_feature_formated("audio_full_play_all")),
+max(df_feature_formated("audio_play_first90days")), 
+min(df_feature_formated("audio_play_first90days")),
+max(df_feature_formated("audio_full_play_first90days")), 
+min(df_feature_formated("audio_full_play_first90days")),
+max(df_feature_formated("audio_download_all")), 
+min(df_feature_formated("audio_download_all")),
+max(df_feature_formated("audio_comment")), 
+min(df_feature_formated("audio_comment")),
+max(df_feature_formated("sorts")), 
+min(df_feature_formated("sorts")), 
+max(df_feature_formated("sort_offset")), 
+min(df_feature_formated("sort_offset")), 
+max(df_feature_formated("edit_sort")), 
+min(df_feature_formated("edit_sort")), 
+max(df_feature_formated("bi_sort")), 
+min(df_feature_formated("bi_sort")),
+max(df_feature_formated("search_cnt")), 
+min(df_feature_formated("search_cnt")),
+max(df_feature_formated("local_cnt")), 
+min(df_feature_formated("local_cnt"))
+).show()
+```
+
+```
++---------------+---------------+---------+---------+-----------+-----------+---------------+---------------+--------------+--------------+-----------+-----------+-------------------+-------------------+------------------------+------------------------+---------------------------+---------------------------+--------------------------------+--------------------------------+-----------------------+-----------------------+------------------+------------------+----------+----------+----------------+----------------+--------------+--------------+------------+------------+---------------+---------------+--------------+--------------+
+|max(timelength)|min(timelength)|max(diff)|min(diff)|max(choric)|min(choric)|max(ownercount)|min(ownercount)|max(playcount)|min(playcount)|max(is_vip)|min(is_vip)|max(audio_play_all)|min(audio_play_all)|max(audio_full_play_all)|min(audio_full_play_all)|max(audio_play_first90days)|min(audio_play_first90days)|max(audio_full_play_first90days)|min(audio_full_play_first90days)|max(audio_download_all)|min(audio_download_all)|max(audio_comment)|min(audio_comment)|max(sorts)|min(sorts)|max(sort_offset)|min(sort_offset)|max(edit_sort)|min(edit_sort)|max(bi_sort)|min(bi_sort)|max(search_cnt)|min(search_cnt)|max(local_cnt)|min(local_cnt)|
++---------------+---------------+---------+---------+-----------+-----------+---------------+---------------+--------------+--------------+-----------+-----------+-------------------+-------------------+------------------------+------------------------+---------------------------+---------------------------+--------------------------------+--------------------------------+-----------------------+-----------------------+------------------+------------------+----------+----------+----------------+----------------+--------------+--------------+------------+------------+---------------+---------------+--------------+--------------+
+|     2147483647|              0|   734624|  -364144|          1|          0|       12458008|              0|        239926|             0|          1|          0|         6272233878|                  0|              4620233112|                       0|                 1603766902|                          0|                      1230225817|                               0|              220258221|                      0|           3630731|                 0|   9999999|         1|           81447|          -79362|       9999999|             1|    26391309|           0|         728220|              0|        304843|             0|
++---------------+---------------+---------+---------+-----------+-----------+---------------+---------------+--------------+--------------+-----------+-----------+-------------------+-------------------+------------------------+------------------------+---------------------------+---------------------------+--------------------------------+--------------------------------+-----------------------+-----------------------+------------------+------------------+----------+----------+----------------+----------------+--------------+--------------+------------+------------+---------------+---------------+--------------+--------------+
 ```
 
 
@@ -778,11 +1182,15 @@ val df_sessions_read = (spark.sql(sql_sessions_read).
 
 //两个本地和搜索作为两个特征
 val df_sessions_read = (spark.sql(sql_sessions_read).
- groupBy("q", "u", "choric_singer", "songname").
- agg(sum("cnt").alias("cnt"))
-)
-val df = df_test.as("d1").join(df_sessions_read.as("d2"),  ($"d1.scid_albumid" === $"d2.u" and $"d1.keyword" === $"d2.q"), "left").select("d1.*", "d2.cnt")
-df.filter($"keyword" === "牛奶面包").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "position", "cnt").show()
+  groupBy("q", "u", "choric_singer", "songname").
+  agg(
+    sum(when($"s" === 0, $"cnt").otherwise(0)).as("local_cnt"),
+    sum(when($"s" =!= 0, $"cnt").otherwise(0)).as("search_cnt")
+  ))
+
+val df = df_test.as("d1").join(df_sessions_read.as("d2"),  ($"d1.scid_albumid" === $"d2.u" and $"d1.keyword" === $"d2.q"), "left").select("d1.*", "d2.search_cnt", "d2.local_cnt")
+df.filter($"keyword" === "牛奶面包").sort($"num".desc).select("keyword", "scid_albumid", "scid", "choric_singer", "songname", "num", "position", "search_cnt", "local_cnt").show()
+//搞错了c没考虑所以其实都是点击而已。。。。
 //虽然短视频可能30秒更有优势，考虑后面再更换特征，目前下面这个例子还可以，第二首还是比下面的短歌cnt高的
 
 +-------+------------+--------+--------------+--------------------+----+--------+----+
@@ -1016,12 +1424,18 @@ audio_play_first90days,首发90天播放量（从有播放量开始算）
 audio_full_play_first90days,首发90天完整播放量（从有播放量开始算）
 audio_download_all,累计下载量
 audio_comment,累计评论量（前端口径）
-sorts, 歌手飙升排序
+sorts, 歌手飙升排序,1最大,9999999最小
 sort_offset, 歌手飙升排名最近2次的排名偏移值
-edit_sort, 歌手热度排序
+edit_sort, 歌手热度排序,1最大,9999999最小
 bi_sort, 歌手歌曲播放量累加值，降序
-query_search, 日query下的有效搜索次数
-query_play, 日query下的有效播放次数
+query_search, 日query下的点击次数
+query_play, 日query下的点击次数
+
+
+```
+
+```
+query下的点击，见30秒与点击板块，用自己生成的表，而非戴奇的表。
 ```
 
 
