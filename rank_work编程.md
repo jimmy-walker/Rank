@@ -1597,7 +1597,7 @@ audio_comment           bigint                  累计评论量（前端口径�
 
 
 
-#### 去除收费和拦截的，计算相关特征
+#### 去除收费和拦截的，计算相关特征（收费暂时未去除）
 
 
 
@@ -1833,6 +1833,36 @@ LightGBM use the zero-based libsvm file (when pass libsvm file to LightGBM), whi
 [相关issue](https://github.com/dmlc/xgboost/issues/3915 )，[相关代码](https://github.com/dmlc/xgboost/blob/93f63324e62c9e04269d17bc6505137a18dcc900/src/objective/rank_obj.cc#L41 )，谈到了 enumerate buckets with same label, for each item in the lst, grab another sample randomly。
 
 这篇[文章](https://blog.csdn.net/anshuai_aw1/article/details/86018105 )中也提到：**如何构造pair对？** xgboost/src/objective/rank_obj.cc,75行开始构造pair对。如上理论所说，每条文档移动的方向和趋势取决于其他所有与之 label 不同的文档。因此我们只需要构造不同label的“正向文档对”。其方法主要为:遍历所有的样本，从与本样本label不同的其他label桶中，任意取一个样本，构造成正样本； 
+
+#### 开发细节（临时保存在书签中）
+
+##### 从hive数据库中提取数据
+
+```hive
+show partitions temp.jomei_search_cm_9156_click_final_combine_data;
+```
+
+
+
+```shell
+hive -e"
+set mapreduce.job.queuename=root.baseDepSarchQueue;
+set hive.support.quoted.identifiers=none;
+select keyword, scid_albumid, scid, choric_singer, songname, cast(num as double), gradelog, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from temp.jomei_search_cm_9156_click_final_combine_data where cdt='2019-12-09'
+;">20191209result.txt
+```
+
+##### 将数据转成libsvm格式（only my railgun ？ only-my-railgun）
+
+测试了下only-my-railgun，其中num的排序与线上基本一致，估计应该全部fo都这么改了吧，问了数据专员说不知道。。
+
+
+
+##### 分割train，text和eval
+
+实验中代码的分布是train：7796，dev：1000，test：795。分成0，1，2三级。此外最少每个query有5个选项。
+
+
 
 ###数据来源
 
