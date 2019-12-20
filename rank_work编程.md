@@ -1768,7 +1768,7 @@ gbm.save_model(model_save_path) #保存模型
 ```
 #### [NDCG](https://mlexplained.com/2019/05/27/learning-to-rank-explained-with-code/ )
 
-J猜测应该在训练时候，对验证集中的~~第十个~~**前十个（因为NDCG会累加）**位置进行下列公式计算，并且求平均。**注意显示出来的是验证集上的metric，训练集上的metric的作用是用来帮助梯度进行迭代优化。**
+~~J猜测应该~~（读完源码验证了这一点，就是前k个）在训练时候，对验证集中的~~第十个~~**前十个（因为NDCG会累加）**位置进行下列公式计算，并且求平均。**注意显示出来的是验证集上的metric，训练集上的metric的作用是用来帮助梯度进行迭代优化。**
 
 ![](picture/ndcg.png)
 
@@ -1812,6 +1812,433 @@ LightGBM use the zero-based libsvm file (when pass libsvm file to LightGBM), whi
 
 **版本有要求：MMLSpark requires Scala 2.11, Spark 2.3+** 待联系！！！！！！！！！！！！！！！！！！！！！！
 
+官方maven：<https://mvnrepository.com/search?q=mmlspark> 
+
+jar包下载：<https://search.maven.org/artifact/com.microsoft.ml.spark/mmlspark_2.11/0.18.1/jar> 
+
+```linux
+spark-shell \
+--jars mmlspark_2.11-0.18.1.jar \
+--name jimmy_spark_debug \
+--master yarn \
+--queue root.baseDepSarchQueue \
+--deploy-mode client \
+--executor-memory 10G \
+--executor-cores 4 \
+--num-executors 4 \
+--conf spark.sql.shuffle.partitions=2001 \
+--conf spark.network.timeout=800 \
+--conf spark.scheduler.listenerbus.eventqueue.size=100000
+```
+
+##### mmlspark相关问题（mmlspark卡在glibc）
+
+使用maven编译了jar包
+
+```xml
+        <dependency>
+            <groupId>com.microsoft.ml.spark</groupId>
+            <artifactId>mmlspark_2.11</artifactId>
+            <version>0.18.1</version>
+        </dependency>
+```
+
+
+
+```linux
+spark-shell --jars mmlspark_2.11-0.18.1.jar
+#报错：error java.lang.NoClassDefFoundError: Lcom/microsoft/ml/lightgbm/SWIGTYPE_p_void
+#解决方法，加入lightgbm包
+https://github.com/Azure/mmlspark/issues/295#issuecomment-529171303
+```
+
+
+
+```linux
+spark-shell --jars mmlspark_2.11-0.18.1.jar,lightgbmlib-2.2.350.jar 
+报错：
+查看glibc版本：getconf GNU_LIBC_VERSION
+glibc 2.12
+查看系统版本：cat /etc/redhat-release
+CentOS release 6.9 (Final)
+必须更新glibc
+https://github.com/Azure/mmlspark/issues/335#issuecomment-501014489
+```
+
+
+
+```linux
+19/12/17 18:19:59 ERROR Executor: Exception in task 0.0 in stage 1.0 (TID 320)  
+java.lang.UnsatisfiedLinkError: /tmp/mml-natives8221713268820158750/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8221713268820158750/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+19/12/17 18:19:59 ERROR Executor: Exception in task 2.0 in stage 1.0 (TID 322)
+java.lang.UnsatisfiedLinkError: /tmp/mml-natives4480680396895670770/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives4480680396895670770/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+19/12/17 18:19:59 ERROR Executor: Exception in task 3.0 in stage 1.0 (TID 323)
+java.lang.UnsatisfiedLinkError: /tmp/mml-natives1335476541382903173/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives1335476541382903173/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+19/12/17 18:19:59 ERROR Executor: Exception in task 1.0 in stage 1.0 (TID 321)
+java.lang.UnsatisfiedLinkError: /tmp/mml-natives8612279995968073922/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8612279995968073922/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+19/12/17 18:19:59 WARN TaskSetManager: Lost task 1.0 in stage 1.0 (TID 321, localhost, executor driver): java.lang.UnsatisfiedLinkError: /tmp/mml-natives8612279995968073922/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8612279995968073922/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+19/12/17 18:19:59 ERROR TaskSetManager: Task 1 in stage 1.0 failed 1 times; aborting job
+19/12/17 18:19:59 WARN TaskSetManager: Lost task 0.0 in stage 1.0 (TID 320, localhost, executor driver): java.lang.UnsatisfiedLinkError: /tmp/mml-natives8221713268820158750/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8221713268820158750/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+19/12/17 18:19:59 WARN TaskSetManager: Lost task 3.0 in stage 1.0 (TID 323, localhost, executor driver): java.lang.UnsatisfiedLinkError: /tmp/mml-natives1335476541382903173/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives1335476541382903173/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+19/12/17 18:19:59 WARN TaskSetManager: Lost task 2.0 in stage 1.0 (TID 322, localhost, executor driver): java.lang.UnsatisfiedLinkError: /tmp/mml-natives4480680396895670770/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives4480680396895670770/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+org.apache.spark.SparkException: Job aborted due to stage failure: Task 1 in stage 1.0 failed 1 times, most recent failure: Lost task 1.0 in stage 1.0 (TID 321, localhost, executor driver): java.lang.UnsatisfiedLinkError: /tmp/mml-natives8612279995968073922/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8612279995968073922/lib_lightgbm.so)
+        at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+        at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+        at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+        at java.lang.Runtime.load0(Runtime.java:809)
+        at java.lang.System.load(System.java:1086)
+        at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+        at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+        at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+        at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+        at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+        at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+        at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+        at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+        at org.apache.spark.scheduler.Task.run(Task.scala:121)
+        at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+        at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+        at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+Driver stacktrace:
+  at org.apache.spark.scheduler.DAGScheduler.org$apache$spark$scheduler$DAGScheduler$$failJobAndIndependentStages(DAGScheduler.scala:1889)
+  at org.apache.spark.scheduler.DAGScheduler$$anonfun$abortStage$1.apply(DAGScheduler.scala:1877)
+  at org.apache.spark.scheduler.DAGScheduler$$anonfun$abortStage$1.apply(DAGScheduler.scala:1876)
+  at scala.collection.mutable.ResizableArray$class.foreach(ResizableArray.scala:59)
+  at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:48)
+  at org.apache.spark.scheduler.DAGScheduler.abortStage(DAGScheduler.scala:1876)
+  at org.apache.spark.scheduler.DAGScheduler$$anonfun$handleTaskSetFailed$1.apply(DAGScheduler.scala:926)
+  at org.apache.spark.scheduler.DAGScheduler$$anonfun$handleTaskSetFailed$1.apply(DAGScheduler.scala:926)
+  at scala.Option.foreach(Option.scala:257)
+  at org.apache.spark.scheduler.DAGScheduler.handleTaskSetFailed(DAGScheduler.scala:926)
+  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.doOnReceive(DAGScheduler.scala:2110)
+  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.onReceive(DAGScheduler.scala:2059)
+  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.onReceive(DAGScheduler.scala:2048)
+  at org.apache.spark.util.EventLoop$$anon$1.run(EventLoop.scala:49)
+  at org.apache.spark.scheduler.DAGScheduler.runJob(DAGScheduler.scala:737)
+  at org.apache.spark.SparkContext.runJob(SparkContext.scala:2061)
+  at org.apache.spark.SparkContext.runJob(SparkContext.scala:2158)
+  at org.apache.spark.rdd.RDD$$anonfun$reduce$1.apply(RDD.scala:1035)
+  at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)
+  at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:112)
+  at org.apache.spark.rdd.RDD.withScope(RDD.scala:363)
+  at org.apache.spark.rdd.RDD.reduce(RDD.scala:1017)
+  at org.apache.spark.sql.Dataset$$anonfun$reduce$1.apply(Dataset.scala:1637)
+  at org.apache.spark.sql.Dataset$$anonfun$withNewRDDExecutionId$1.apply(Dataset.scala:3349)
+  at org.apache.spark.sql.execution.SQLExecution$$anonfun$withNewExecutionId$1.apply(SQLExecution.scala:78)
+  at org.apache.spark.sql.execution.SQLExecution$.withSQLConfPropagated(SQLExecution.scala:125)
+  at org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId(SQLExecution.scala:73)
+  at org.apache.spark.sql.Dataset.withNewRDDExecutionId(Dataset.scala:3345)
+  at org.apache.spark.sql.Dataset.reduce(Dataset.scala:1636)
+  at com.microsoft.ml.spark.lightgbm.LightGBMBase$class.innerTrain(LightGBMBase.scala:90)
+  at com.microsoft.ml.spark.lightgbm.LightGBMRanker.innerTrain(LightGBMRanker.scala:25)
+  at com.microsoft.ml.spark.lightgbm.LightGBMBase$class.train(LightGBMBase.scala:38)
+  at com.microsoft.ml.spark.lightgbm.LightGBMRanker.train(LightGBMRanker.scala:25)
+  at com.microsoft.ml.spark.lightgbm.LightGBMRanker.train(LightGBMRanker.scala:25)
+  at org.apache.spark.ml.Predictor.fit(Predictor.scala:118)
+  ... 51 elided
+Caused by: java.lang.UnsatisfiedLinkError: /tmp/mml-natives8612279995968073922/lib_lightgbm.so: /lib64/libc.so.6: version `GLIBC_2.14' not found (required by /tmp/mml-natives8612279995968073922/lib_lightgbm.so)
+  at java.lang.ClassLoader$NativeLibrary.load(Native Method)
+  at java.lang.ClassLoader.loadLibrary0(ClassLoader.java:1941)
+  at java.lang.ClassLoader.loadLibrary(ClassLoader.java:1824)
+  at java.lang.Runtime.load0(Runtime.java:809)
+  at java.lang.System.load(System.java:1086)
+  at com.microsoft.ml.spark.core.env.NativeLoader.loadLibraryByName(NativeLoader.java:59)
+  at com.microsoft.ml.spark.lightgbm.LightGBMUtils$.initializeNativeLibrary(LightGBMUtils.scala:40)
+  at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:396)
+  at com.microsoft.ml.spark.lightgbm.TrainUtils$$anonfun$15.apply(TrainUtils.scala:393)
+  at com.microsoft.ml.spark.core.env.StreamUtilities$.using(StreamUtilities.scala:28)
+  at com.microsoft.ml.spark.lightgbm.TrainUtils$.trainLightGBM(TrainUtils.scala:392)
+  at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+  at com.microsoft.ml.spark.lightgbm.LightGBMBase$$anonfun$6.apply(LightGBMBase.scala:85)
+  at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:188)
+  at org.apache.spark.sql.execution.MapPartitionsExec$$anonfun$5.apply(objects.scala:185)
+  at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+  at org.apache.spark.rdd.RDD$$anonfun$mapPartitionsInternal$1$$anonfun$apply$24.apply(RDD.scala:836)
+  at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+  at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+  at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+  at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)
+  at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:324)
+  at org.apache.spark.rdd.RDD.iterator(RDD.scala:288)
+  at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:90)
+  at org.apache.spark.scheduler.Task.run(Task.scala:121)
+  at org.apache.spark.executor.Executor$TaskRunner$$anonfun$10.apply(Executor.scala:408)
+  at org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:1360)
+  at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:414)
+  at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+  at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+  at java.lang.Thread.run(Thread.java:748)
+```
+
+
+
 #####weight可用来控制样本的权重
 
 在dataset中配置，从而帮助loss时候计算。
@@ -1848,21 +2275,139 @@ show partitions temp.jomei_search_cm_9156_click_final_combine_data;
 hive -e"
 set mapreduce.job.queuename=root.baseDepSarchQueue;
 set hive.support.quoted.identifiers=none;
-select keyword, scid_albumid, scid, choric_singer, songname, cast(num as double), gradelog, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from temp.jomei_search_cm_9156_click_final_combine_data where cdt='2019-12-09'
-;">20191209result.txt
+select keyword, scid_albumid, scid, choric_singer, songname, num, gradelog, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from temp.jomei_search_cm_9156_click_final_combine_data where cdt='2019-12-16'
+;">20191216result.txt
 ```
 
 ##### 将数据转成libsvm格式（only my railgun ？ only-my-railgun）
 
 测试了下only-my-railgun，其中num的排序与线上基本一致，估计应该全部fo都这么改了吧，问了数据专员说不知道。。
 
+**先用dump_svmlight_file转成稀疏矩阵，然后加入comment，使用。**
+
+```python
+y=df_raw["gradelog"]
+y_id=df_raw["id_cat"]
+dummy = pd.get_dummies(df_raw[['is_vip', 'single', 'choric', 'timelength',
+       'final_ownercount', 'final_playcount', 'final_audio_play_all',
+       'final_audio_full_play_all', 'final_audio_play_first90days',
+       'final_audio_full_play_first90days', 'final_audio_download_all',
+       'final_audio_comment', 'sorts', 'sort_offset', 'edit_sort', 'bi_sort',
+       'final_search_cnt', 'final_local_cnt', 'final_diff', 'xiaoyin', 'danqu',
+       'pianduan', 'banzou', 'undo', 'hunyin', 'yousheng', 'lingsheng',
+       'chunyinyue', 'dj', 'xianchang', 'quyi', 'guagnchangwu', 'xiju']])
+mat = dummy.as_matrix()
+dump_svmlight_file(mat, y, 'svm-output-raw' + date_spec + '.libsvm', zero_based=False, query_id=y_id)
+
+df_raw_libsvm = pd.read_csv('svm-output-raw' + date_spec + '.libsvm',  encoding='utf-8', header=None, names=["libsvm"])
+assert len(df_raw_libsvm) == len(df_raw)
+df_raw["libsvm"] = df_raw_libsvm["libsvm"]
+
+np.random.seed(100)
+train_percent=0.9
+test_percent=0.05
+dev_percent=0 #change 0.05 to 0, cause it doesn't need it
+# Use columns as indices
+df_index = df_raw.set_index(['keyword'])
+# Choose random sample of indices
+all_keyword = np.array(df_index.index.unique())
+np.random.shuffle(all_keyword)
+test_length=int(len(all_keyword) * test_percent)
+dev_length=int(len(all_keyword) * dev_percent)
+train_length=len(all_keyword) - test_length - dev_length
+test_index = all_keyword[0:test_length]
+dev_index = all_keyword[test_length: test_length+dev_length]
+train_index = all_keyword[test_length+dev_length:]
+test_index = np.append(test_index, np.array([research_keyword]))
+train_index = np.setdiff1d(train_index, np.array([research_keyword]))
+# Select
+df_train = df_index.loc[train_index].reset_index(drop=False)
+df_dev = df_index.loc[dev_index].reset_index(drop=False)
+df_test = df_index.loc[test_index].reset_index(drop=False)
+
+ltr_cat = ["train", "dev", "test"]
+df_cat = [df_train, df_dev, df_test]
+for i in range(3):
+    df_cat[i]["output"] = df_cat[i]["libsvm"] + " #" + df_cat[i]["comment"]
+    df_cat[i]["output"].to_csv('svm-output-' + ltr_cat[i] + date_spec + '.libsvm', header=None, index=False, sep='\t',  quoting=csv.QUOTE_NONE, quotechar=' ', encoding='utf-8')
 
 
-##### 分割train，text和eval
+```
+
+
+
+##### 分割train，test和eval（实际中train0.95，test0.5，不用eval）
 
 实验中代码的分布是train：7796，dev：1000，test：795。分成0，1，2三级。此外最少每个query有5个选项。
 
+##### 使用predict
 
+就是根据计算出来的分值进行排序。
+
+##### 利用ndcg（前k个）计算eval的指标
+
+dcg的公式代码就是这段：
+
+```python
+def dcg_k(scores, k):
+    """
+        Returns the DCG value of the list of scores and truncates to k values.
+        Parameters
+        ----------
+        scores : list
+            Contains labels in a certain ranked order
+        k : int
+            In the amount of values you want to only look at for computing DCG
+
+        Returns
+        -------
+        DCG_val: int
+            This is the value of the DCG on the given scores
+    """
+    return np.sum([
+                      (np.power(2, scores[i]) - 1) / np.log2(i + 2)
+                      for i in range(len(scores[:k]))
+                      ])
+```
+
+ndcg就是用dcg除以最理想的dcg。
+
+##### 测试diff=0时的攀升性能（待看是否有其他问题存在）
+
+还不行，可能是权重调整。以20191210为例，整个样本内只有35个diff为0，因此需要调整一下。
+
+20191210，keyword：王北车，歌曲：梦半，scid_albumid:240981884 ，还不理想。
+1
+王北车-梦半	5.0	-0.648818
+100
+王北车-梦半	5.0	-0.288671
+1000
+王北车-梦半	5.0	0.718274
+
+设置weight后解决。
+
+测试了"一生与你擦肩而过铃声"和"追梦赤子心"。还可以。考虑weight采用测试机与整体的比例进行测试。目前采用定值1000。
+
+
+1.dataset中设置weight（用此方法）<https://lightgbm.readthedocs.io/en/latest/pythonapi/lightgbm.Dataset.html#lightgbm.Dataset.__init__> 
+
+设置方法在这里：<https://github.com/microsoft/LightGBM/issues/231> 
+
+2.train中params设置`weight_column`  
+
+<https://lightgbm.readthedocs.io/en/latest/Parameters.html#weight_column> 
+
+3.直接文件train.weight.txt，但是没看到相关api
+
+<https://github.com/Microsoft/LightGBM/blob/master/docs/Parameters.rst#weight-data> 
+
+##### 模型解释
+
+##### ~~计算minmax的指标复用测试~~（不用归一化！）
+
+##### 训练参数调整
+
+<https://github.com/microsoft/LightGBM/blob/master/docs/Parameters-Tuning.rst> 
 
 ###数据来源
 
@@ -1981,6 +2526,382 @@ Load datasets in the svmlight / libsvm format into sparse CSR matrix
 有人提到可以这么转，从而帮助导入到elasticsearch中。
 
 <https://github.com/o19s/elasticsearch-learning-to-rank/issues/150> 
+
+#### xgboost4j-spark相关问题
+
+#####spark-shell示例
+
+[最新版的xgboost4j-spark（0.91）需要spark2.4+](https://xgboost.readthedocs.io/en/latest/jvm/xgboost4j_spark_tutorial.html )
+
+```linux
+spark-shell \
+--jars xgboost4j-spark-0.72-online-with-dependencies.jar  \
+--name jimmy_spark_debug \
+--master yarn \
+--queue root.baseDepSarchQueue \
+--deploy-mode client \
+--executor-memory 10G \
+--executor-cores 4 \
+--num-executors 4 \
+--conf spark.sql.shuffle.partitions=2001 \
+--conf spark.network.timeout=800 \
+--conf spark.scheduler.listenerbus.eventqueue.size=100000
+```
+
+
+
+```linux
+spark-shell --jars xgboost4j-0.91.0-criteo-20190723-7ba5648_2.11-linux.jar,xgboost4j-spark-0.91.0-criteo-20190723-7ba5648_2.11.jar  
+报错如下：
+网上可知，rabit tracker不支持python7以下，其中tracker可见https://github.com/dmlc/dmlc-core/tree/master/tracker
+https://github.com/dmlc/xgboost/issues/3834#issuecomment-439665516
+By default, we use the tracker in dmlc-core to drive the training with XGBoost4J-Spark. It requires Python 2.7+. We also have an experimental Scala version of tracker which can be enabled by passing the parameter tracker_conf as scala.
+
+因此采用设置tracker_conf："tracker_conf" -> TrackerConf(0L, "scala")
+https://github.com/dmlc/xgboost/issues/3908#issuecomment-440033047
+报错：parameter "tracker_conf" must be an instance of TrackerConf
+查阅源码找到TrackerConf的类定义位置，但不能直接复制其类定义，仍会报错，必须引入包.class名
+import ml.dmlc.xgboost4j.scala.spark.TrackerConf
+https://stackoverflow.com/questions/3075951/scala-importing-class
+https://github.com/dmlc/xgboost/blob/master/jvm-packages/xgboost4j-spark/src/main/scala/ml/dmlc/xgboost4j/scala/spark/XGBoost.scala
+
+报错：Exception in thread "main" java.lang.NoClassDefFoundError: akka/actor/ActorSystem$
+采用dependency的jar包
+https://github.com/dmlc/xgboost/issues/2705#issuecomment-331711130
+
+示例代码：
+https://vyspace.github.io/ai/hadoop-xgby/
+```
+
+
+
+```scala
+//dataframe版本
+import ml.dmlc.xgboost4j.scala.spark.{TrackerConf, XGBoost}
+val dataPath = "Jquery"
+val outPath = "Jquery"
+//val trainFile = dataPath + "/agaricus.txt.train"
+val trainFile = dataPath + "/agaricus.txt.train2"
+val testFile = dataPath + "/agaricus.txt.test"
+val trainDF = spark.sqlContext.read.format("libsvm").load(trainFile)
+val testDF = spark.sqlContext.read.format("libsvm").load(testFile)
+
+val params = List(
+  "eta" -> 0.1f,
+  "max_depth" -> 2,
+  "objective" -> "binary:logistic",
+  "silent" -> 1,
+  "tracker_conf" -> TrackerConf(0L, "scala")
+).toMap
+
+val xgbModel = XGBoost.trainWithDataFrame(trainDF, params, 3, 2, useExternalMemory = true)
+xgbModel.transform(testDF).show()
+
+//rdd版本
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.ml.feature.{LabeledPoint => MLLabeledPoint}
+import org.apache.spark.ml.linalg.{DenseVector => MLDenseVector}
+import ml.dmlc.xgboost4j.scala.spark.{TrackerConf,XGBoost}
+
+val dataPath = "Jquery"
+val outPath = "Jquery"
+val trainFile = dataPath + "/agaricus.txt.train"
+val testFile = dataPath + "/agaricus.txt.test"
+val trainRDD = MLUtils.loadLibSVMFile(sc, trainFile).map(lp => MLLabeledPoint(lp.label, new MLDenseVector(lp.features.toArray)))
+val testSet = MLUtils.loadLibSVMFile(sc, testFile).map(lp => new MLDenseVector(lp.features.toArray))
+
+val paramMap = List(
+    "eta" -> 0.1f,
+    "max_depth" -> 2,
+    "silent" -> 1,
+    "objective" -> "binary:logistic",
+    "tracker_conf" -> TrackerConf(0L, "scala")
+).toMap
+println("start train")
+val xgbModel = XGBoost.trainWithRDD(trainRDD, paramMap, 3, 2, useExternalMemory = true)
+println("train success")
+val result = xgbModel.predict(testSet, missingValue = Float.NaN)
+result.collect()
+```
+
+
+
+
+
+```linux
+Tracker started, with env={}
+19/12/17 19:05:20 WARN XGBoostSpark: train_test_ratio is deprecated since XGBoost 0.82, we recommend to explicitly pass a training and multiple evaluation datasets by passing 'eval_sets' and 'eval_set_names'
+[Stage 2:=====================================>                (224 + 31) / 320][0]     train-error:0.000000
+[1]     train-error:0.000000
+[2]     train-error:0.000000
+[3]     train-error:0.000000
+[4]     train-error:0.000000
+ml.dmlc.xgboost4j.java.XGBoostError: XGBoostModel training failed               
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$.ml$dmlc$xgboost4j$scala$spark$XGBoost$$postTrackerReturnProcessing(XGBoost.scala:594)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$$anonfun$trainDistributed$2.apply(XGBoost.scala:469)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$$anonfun$trainDistributed$2.apply(XGBoost.scala:444)
+  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+  at scala.collection.immutable.List.foreach(List.scala:392)
+  at scala.collection.TraversableLike$class.map(TraversableLike.scala:234)
+  at scala.collection.immutable.List.map(List.scala:296)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$.trainDistributed(XGBoost.scala:443)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoostClassifier.train(XGBoostClassifier.scala:194)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoostClassifier.train(XGBoostClassifier.scala:44)
+  at org.apache.spark.ml.Predictor.fit(Predictor.scala:118)
+  ... 51 elided
+```
+
+
+
+#####spark-submit示例
+
+当报错找不到trackerconf时，采用附加jar包的方式，**具体更改到时候进一步搜索**
+
+```linux
+mvn install:install-file -Dfile=xgboost4j-spark-0.72-online-with-dependencies.jar -DgroupId=ml.dmlc -DartifactId=xgboost4j-spark -Dversion=0.72 -Dpackaging=jar
+```
+
+**理论上编译完后，添加到maven本地仓库，然后xml文件中设置会自动将其引入。**
+
+<https://blog.csdn.net/u010159842/article/details/80198264> 
+
+```linux
+
+```
+
+
+
+#####编译jar包dependency（待）
+
+######编译jar包
+https://xgboost.readthedocs.io/en/latest/build.html#building-on-ubuntu-debian
+https://xgboost.readthedocs.io/en/latest/jvm/index.html
+https://vyspace.github.io/ai/hadoop-xgby/
+https://blog.csdn.net/u011464774/article/details/79172288
+https://blog.csdn.net/u010159842/article/details/80198264
+http://deepspark.cn/2017/05/05/xgboost-install/
+https://github.com/baolinji/Xgboost-spark-tutorial
+
+<https://vyspace.github.io/ai/hadoop-xgby/> 
+
+**切换版本 ( git checkout release_0.72 )，切换你需要的版本，不然会编译错误**
+
+**为什么要编译安装？直接maven不就好了嘛？**
+
+**会报错啊啊啊！！！**
+
+ 
+
+
+
+<https://zhuanlan.zhihu.com/p/97192300> 
+
+ 
+
+######相关环境配置
+
+安装
+
+<https://gist.github.com/beci/2a2091f282042ed20cda> 
+
+<https://github.com/roboticslab-uc3m/installation-guides/blob/master/install-cmake.md#ubuntu-1404-backports> 
+
+<http://ubuntuhandbook.org/index.php/2015/01/install-openjdk-8-ubuntu-14-04-12-04-lts/> 
+
+<https://www.dangtrinh.com/2014/04/install-and-configure-java-and-maven-in.html> 
+
+
+
+
+
+
+
+gcc，make，cmake区别，g++是不同的编译器
+
+<https://blog.csdn.net/libaineu2004/article/details/77119908> 
+
+<https://www.jianshu.com/p/b3ddb0662c98> 
+
+写程序大体步骤为： 1.用编辑器编写源代码，如.c文件。 2.用编译器编译代码生成目标文件，如.o。 3.用链接器连接目标代码生成可执行文件，如.exe。 
+
+1.gcc是GNU Compiler Collection（就是GNU编译器套件），也可以简单认为是编译器，它可以编译很多种编程语言（括C、C++、Objective-C、Fortran、Java等等）。
+
+2.当你的程序只有一个源文件时，直接就可以用gcc命令编译它。
+
+3.但是当你的程序包含很多个源文件时，用gcc命令逐个去编译时，你就很容易混乱而且工作量大
+
+4.所以出现了make工具
+make工具可以看成是一个智能的批处理工具，它本身并没有编译和链接的功能，而是用类似于批处理的方式—通过调用makefile文件中用户指定的命令来进行编译和链接的。
+
+5.makefile是什么？简单的说就像一首歌的乐谱，make工具就像指挥家，指挥家根据乐谱指挥整个乐团怎么样演奏，make工具就根据makefile中的命令进行编译和链接的。
+
+6.makefile命令中就包含了调用gcc（也可以是别的编译器）去编译某个源文件的命令。
+
+7.makefile在一些简单的工程完全可以人工手下，但是当工程非常大的时候，手写makefile也是非常麻烦的，如果换了个平台makefile又要重新修改。
+
+8.这时候就出现了Cmake这个工具，cmake就可以更加简单的生成makefile文件给上面那个make用。当然cmake还有其他功能，就是可以跨平台生成对应平台能用的makefile，你不用再自己去修改了。
+
+9.可是cmake根据什么生成makefile呢？它又要根据一个叫CMakeLists.txt文件（学名：组态档）去生成makefile。
+
+10.到最后CMakeLists.txt文件谁写啊？亲，是你自己手写的。
+
+12.cmake是make maker，生成各种可以直接控制编译过程的控制器的配置文件，比如makefile、各种IDE的配置文件。 
+
+13.make是一个简单的通过文件时间戳控制自动过程、处理依赖关系的软件，这个自动过程可以是编译一个项目。
+
+
+
+jdk》jre》jvm **逐渐包含**
+
+<https://www.runoob.com/w3cnote/the-different-of-jre-and-jdk.html> 
+
+**JRE(Java Runtime Enviroment)** 是 Java 的运行环境。面向 Java 程序的使用者，而不是开发者。如果你仅下载并安装了 JRE，那么你的系统只能运行 Java 程序。 
+
+JDK(Java Development Kit) 又称 J2SDK(Java2 Software Development Kit)，是 Java 开发工具包，它提供了 Java 的开发环境(提供了编译器 javac 等工具，用于将 java 文件编译为 class 文件)和运行环境(提 供了 JVM 和 Runtime 辅助包，用于解析 class 文件使其得到运行)。如果你下载并安装了 JDK，那么你不仅可以开发 Java 程序，也同时拥有了运行 Java 程序的平台。 
+
+
+
+apt-get update
+
+<https://www.cnblogs.com/bwangel23/p/4625245.html> 
+
+```
+update的作用是从/etc/apt/source.list文件中定义的源中去同步包的索引文件，即运行这个命令其实并没有更新软件，而是相当于windows下面的检查更新，获取的是软件的状态
+每回更新之前，我们需要先运行update，然后才能运行upgrade和dist-upgrade，因为相当于update命令获取了包的一些信息，比如大小和版本号，然后再来运行upgrade去下载包，如果没有获取包的信息，那么upgrade就是无效的啦！
+```
+
+
+
+修改maven:conf/settings.xml的mirrirs标签中，添加如下配置： 
+
+```
+<mirror>
+   <id>nexus-aliyun</id>
+   <mirrorOf>*</mirrorOf>
+   <name>Nexus Aliyun</name>
+   <url>http://maven.aliyun.com/nexus/content/groups/public</url>
+</mirror>
+```
+
+
+
+
+
+采用的命令： `mvn -X clean && mvn package | tee log.txt `
+
+<https://zhuanlan.zhihu.com/p/97192300> 
+
+https://stackoverflow.com/a/32858321
+
+
+
+报错：spark 2.4.3支持java 8，由于spark在2.2版本以后就不再支持jdk7，所以在这种情况下，由于 。
+
+<https://stackoverflow.com/questions/22489398/unsupported-major-minor-version-52-0> 
+
+
+
+
+
+
+
+##### l2r程序
+
+<https://github.com/databricks/xgboost-linux64/blob/master/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostDFSuite.scala> 
+
+
+
+<https://github.com/databricks/xgboost-linux64/blob/master/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostGeneralSuite.scala> 
+
+
+
+<https://github.com/dmlc/xgboost/issues/2239> 
+
+
+
+<https://github.com/dmlc/xgboost/issues/2223> 
+
+配套的代码：<https://gist.github.com/rzykov/a8edc950934a6ecb1d7e6c1457efd304> 
+
+
+
+
+
+报错：<https://github.com/dmlc/xgboost/issues/4413> 
+
+一样的版本和一样的错误，一样的小数据成功！
+
+
+
+**trainindData是dataframe，其中featureCol和labelCol定义了列名，默认为features和label，查看相关例子也确实是这么做的两列features和label。**
+
+```scala
+def
+trainWithDataFrame(trainingData: Dataset[_], params: Map[String, Any], round: Int, nWorkers: Int, obj: ObjectiveTrait = null, eval: EvalTrait = null, useExternalMemory: Boolean = false, missing: Float = Float.NaN, featureCol: String = "features", labelCol: String = "label"): XGBoostModel
+Permalink
+Train XGBoost model with the DataFrame-represented data
+
+trainingData
+the training set represented as DataFrame
+
+params
+Map containing the parameters to configure XGBoost
+
+round
+the number of iterations
+
+nWorkers
+the number of xgboost workers, 0 by default which means that the number of workers equals to the partition number of trainingData RDD
+
+obj
+An instance of ObjectiveTrait specifying a custom objective, null by default
+
+eval
+An instance of EvalTrait specifying a custom evaluation metric, null by default
+
+useExternalMemory
+indicate whether to use external memory cache, by setting this flag as true, the user may save the RAM cost for running XGBoost within Spark
+
+missing
+The value which represents a missing value in the dataset
+
+featureCol
+the name of input column, "features" as default value
+
+labelCol
+the name of output column, "label" as default value
+
+returns
+XGBoostModel when successful training
+
+val
+groupData: GroupDataParam
+Permalink
+group data specify each group sizes for ranking task. To correspond to partition of training data, it is nested.
+```
+
+
+
+```linux
+https://gist.github.com/rzykov/a8edc950934a6ecb1d7e6c1457efd304
+https://github.com/dmlc/xgboost/issues/2223
+https://github.com/databricks/xgboost-linux64/blob/master/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostDFSuite.scala
+https://github.com/databricks/xgboost-linux64/blob/master/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostGeneralSuite.scala
+https://github.com/dmlc/xgboost/issues/2239
+https://www.google.com/search?sxsrf=ACYBGNTYujyl-B1vV-_nw260V2WXjSzgLQ%3A1576664198300&ei=hvz5XYj6EYzMgwerzryIAg&q=0.72+params+xgboost4j&oq=0.72+params+xgboost4j&gs_l=psy-ab.3...1228.5412..6025...0.0..0.592.2945.2-5j0j1j2......0....1..gws-wiz.......35i39j0i8i30.QaJFZ6FYPYA&ved=0ahUKEwiI1eDr-77mAhUM5uAKHSsnDyEQ4dUDCAo&uact=5
+https://xgboost.readthedocs.io/en/release_0.72/jvm/javadocs/ml/dmlc/xgboost4j/java/XGBoost.html
+https://xgboost.readthedocs.io/en/release_0.72/jvm/scaladocs/xgboost4j-spark/index/index-t.html
+https://xgboost.readthedocs.io/en/release_0.72/jvm/scaladocs/xgboost4j-spark/index.html#ml.dmlc.xgboost4j.scala.spark.params.GroupDataParam
+https://blog.csdn.net/zjwcdd/article/details/78739201
+https://www.google.com/search?sxsrf=ACYBGNQo1LUsYzdJF5gBvDlFd59zk_-n5Q%3A1576665066136&ei=6v_5XaHwB4rJgweowZu4DA&q=spark+scala+dataframe+to+seq&oq=spark+dataframe+to+seq&gs_l=psy-ab.1.7.35i39j0i203j0i8i67l2j0i30j0i8i30l5.0.0..1350001...0.0..0.484.967.4-2......0......gws-wiz.......0.DM0hMda90ro
+
+```
+
+
+
+
 
 ## Elasticsearch
 
@@ -2386,7 +3307,25 @@ where album_audio_id = '105077632'
 
 
 
+## 备选方案
 
+### 要么使用python调用（里面有讲调用格式），要么使用pmml调用
+
+参考：<https://zhuanlan.zhihu.com/p/24902234> 
+
+1、如果是实时的、小数据量的预测应用，则采用的SOA调用Rserve或者python-httpserve来进行应用；这种应用方式有个缺点是需要启用服务来进行预测，也就是需要跨环境，从Java跨到R或者Python环境。对于性能，基本上我们用Rserver方式，针对一次1000条或者更少请求的预测，可以控制95%的结果在100ms内返回结果，100ms可以满足工程上的实践要求。更大的数据量，比如10000/次，100000/次的预测，我们目前评估下来满足不了100ms的要求，建议分批进行调用或者采用多线程请求的方式来实现。
+
+2、如果是实时、大数据量的预测应用，则会采用SOA，训练好的模型转换成PMML（关于如何转换，我在下面会详细描述），然后把模型封装成一个类，用Java调用这个类来预测。用这种方式的好处是SOA不依赖于任何环境，任何计算和开销都是在Java内部里面消耗掉了，所以这种工程级别应用速度很快、很稳定。用此种方法也是要提供两个东西，模型文件和预测主类；
+
+3、如果是Offline（离线）预测的，D+1天的预测，则可以不用考虑第1、2中方式，可以简单的使用Rscript x.R或者python x.py的方式来进行预测。使用这种方式需要一个调度工具，如果公司没有统一的调度工具，你用shell的crontab做定时调用就可以了。
+
+以上三种做法，都会用SOA里面进行数据处理和变换，只有部分变换会在提供的Function或者类进行处理，一般性都建议在SOA里面处理好，否则性能会变慢。
+
+
+
+### ~~曾经试想直接python训练完，然后直接调用spark导入，发现有人这么想，但是没成功~~
+
+<https://stackoverflow.com/questions/58483371/training-in-python-and-deploying-in-spark> 
 
 ## 项目计划
 
