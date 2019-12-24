@@ -2588,13 +2588,13 @@ val testDF = spark.sqlContext.read.format("libsvm").load(testFile)
 
 val params = List(
   "eta" -> 0.1f,
-  "max_depth" -> 2,
+  "max_depth" -> 6,
   "objective" -> "binary:logistic",
   "silent" -> 1,
   "tracker_conf" -> TrackerConf(0L, "scala")
 ).toMap
 
-val xgbModel = XGBoost.trainWithDataFrame(trainDF, params, 3, 2, useExternalMemory = true)
+val xgbModel = XGBoost.trainWithDataFrame(trainDF, params, 50, 4, useExternalMemory = true)//使得num_workers同num-executors一致就能解决100次迭代的问题！这是从网上看来的经验
 xgbModel.transform(testDF).show()
 
 //rdd版本
@@ -2661,6 +2661,12 @@ ml.dmlc.xgboost4j.java.XGBoostError: XGBoostModel training failed
 
 ```linux
 mvn install:install-file -Dfile=xgboost4j-spark-0.72-online-with-dependencies.jar -DgroupId=ml.dmlc -DartifactId=xgboost4j-spark -Dversion=0.72 -Dpackaging=jar
+
+mvn install:install-file -Dfile=xgboost4j-spark-0.90-criteo-20190702_2.11.jar -DgroupId=ml.dmlc -DartifactId=xgboost4j-spark -Dversion=0.90 -Dpackaging=jar
+
+mvn install:install-file -Dfile=xgboost4j-0.90-criteo-20190702_2.11-win64.jar -DgroupId=ml.dmlc -DartifactId=xgboost4j -Dversion=0.90 -Dpackaging=jar
+
+spark-submit --jars xgboost4j-spark-0.90-criteo-20190702_2.11.jar,xgboost4j-0.90-criteo-20190702_2.11-win64.jar --class xgbdemo xgboost_test-1.0.jar
 ```
 
 **理论上编译完后，添加到maven本地仓库，然后xml文件中设置会自动将其引入。**
@@ -2673,7 +2679,7 @@ mvn install:install-file -Dfile=xgboost4j-spark-0.72-online-with-dependencies.ja
 
 
 
-#####编译jar包dependency（待）
+#####编译jar包dependency（~~待~~）
 
 ######编译jar包
 https://xgboost.readthedocs.io/en/latest/build.html#building-on-ubuntu-debian
@@ -2692,7 +2698,17 @@ https://github.com/baolinji/Xgboost-spark-tutorial
 
 **会报错啊啊啊！！！**
 
- 
+ 0.72下这么操作，官网首页切换到0.72版本
+
+```
+git clone --recursive https://github.com/dmlc/xgboost
+cd xgboost; make -j4
+
+mvn clean && mvn -Dmaven.test.skip=true -Dspark.version=2.4.3 package | tee log5.txt
+
+```
+
+
 
 
 
@@ -2808,6 +2824,204 @@ https://stackoverflow.com/a/32858321
 
 
 ##### l2r程序
+
+######最后在这里找到[答案](https://github.com/dmlc/xgboost/issues/4628)
+
+1. Download Spark 2.4.3 [from here](https://www-us.apache.org/dist/spark/spark-2.4.3/spark-2.4.3-bin-hadoop2.7.tgz), and extract it.
+2. Download the following jars from maven:
+- <https://repo1.maven.org/maven2/ml/dmlc/xgboost4j/0.90/xgboost4j-0.90.jar>
+- <https://repo1.maven.org/maven2/ml/dmlc/xgboost4j-spark/0.90/xgboost4j-spark-0.90.jar>
+- <https://repo1.maven.org/maven2/com/typesafe/akka/akka-actor_2.11/2.3.11/akka-actor_2.11-2.3.11.jar>
+- <https://repo1.maven.org/maven2/com/typesafe/config/1.2.1/config-1.2.1.jar>
+3. Run:
+
+```
+./spark-2.4.3-bin-hadoop2.7/bin/spark-shell --master local[1] --jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar
+```
+
+   
+
+Maven中央库主要放置公共jar包，是由apache maven社区创建的，中央库的网址是[http://repo1.maven.org/maven2](https://link.zhihu.com/?target=https%3A//note.youdao.com/)，可以通过网址[http://search.maven.org/#browse](https://link.zhihu.com/?target=http%3A//search.maven.org/%23browse)查看有哪些公共jar包。 
+
+
+
+###### 相关程序
+
+```linux
+spark-shell \
+--jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar  \
+--name jimmy_spark_debug \
+--master yarn \
+--queue root.baseDepSarchQueue \
+--deploy-mode client \
+--executor-memory 10G \
+--executor-cores 4 \
+--num-executors 4
+```
+
+
+
+```scala
+//0.9 test small
+
+import org.apache.spark.sql.types._
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.VectorAssembler
+
+import ml.dmlc.xgboost4j.scala.spark.XGBoostClassifier
+import ml.dmlc.xgboost4j.scala.spark.TrackerConf
+
+val df = sc.parallelize(Array(
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.1, 0),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1),
+    (0.9, 1)
+)).toDF("feature", "label")
+
+val vectorAssembler = new VectorAssembler().
+    setInputCols(Array("feature")).
+    setOutputCol("features")
+val xgbInput = vectorAssembler.transform(df).select("features", "label").cache
+
+// Binary
+val xgbParam = Map("eta" -> 0.1f,
+      "missing" -> -999,
+      "objective" -> "binary:logistic",
+      "num_round" -> 5,
+      "num_workers" -> 1,
+      "tracker_conf" -> TrackerConf(0L, "scala"))
+val xgbClassifier = new XGBoostClassifier(xgbParam)
+val predictions = xgbClassifier.fit(xgbInput).transform(xgbInput).cache
+predictions.show
+
+//0.9 test big
+
+import ml.dmlc.xgboost4j.scala.spark.{TrackerConf, XGBoostClassifier}
+import org.apache.spark.ml.linalg.Vector
+
+val dataPath = "Jquery"
+val outPath = "Jquery"
+//val trainFile = dataPath + "/agaricus.txt.train"
+val trainFile = dataPath + "/agaricus.txt.train2"
+val testFile = dataPath + "/agaricus.txt.test"
+val trainDF = spark.sqlContext.read.format("libsvm").load(trainFile)
+val testDF = spark.sqlContext.read.format("libsvm").load(testFile)
+val asDense = udf((v: Vector) => v.toDense)
+
+val trainDFdense = trainDF.withColumn("dense" , asDense($"features")).select(col("label"), col("dense").as("features"))
+val testDFdense = testDF.withColumn("dense" , asDense($"features")).select(col("label"), col("dense").as("features"))
+
+
+val xgbParam = Map("eta" -> 0.1f,
+      "missing" -> -999,
+      "objective" -> "binary:logistic",
+      "num_round" -> 5,
+      "num_workers" -> 1,
+      "tracker_conf" -> TrackerConf(0L, "scala"))
+val xgbClassifier = new XGBoostClassifier(xgbParam)
+val predictions = xgbClassifier.fit(trainDFdense).transform(testDFdense).cache
+predictions.show
+
+////0.9 test rank
+import ml.dmlc.xgboost4j.scala.spark.{TrackerConf, XGBoostRegressor}
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.sql.functions._ 
+
+val dataPath = "Jquery"
+val outPath = "Jquery"
+val trainFile = dataPath + "/mq2008.train"
+val testFile = dataPath + "/mq2008.test"
+val trainGroup = dataPath + "/mq2008.train.group"
+val asDense = udf((v: Vector) => v.toDense)
+
+val trainDF = spark.read.format("libsvm").load(trainFile)
+val testDF = spark.read.format("libsvm").load(testFile)
+val asDense = udf((v: Vector) => v.toDense)
+
+val trainDFdense = trainDF.withColumn("dense" , asDense($"features")).select(col("label"), col("dense").as("features")).withColumn("id",monotonicallyIncreasingId)
+val testDFdense = testDF.withColumn("dense" , asDense($"features")).select(col("label"), col("dense").as("features"))
+
+// val trainGroupData: Seq[Seq[Int]]  = Seq(spark.read.csv(trainGroup).collect.map(row=>row.getString(0).toInt).toSeq)
+
+
+val groupDF = spark.read.format("csv").option("inferSchema", true).load(trainGroup).collect().map(row=>row.getInt(0)).zipWithIndex.map{case(num, index) => List.range(0, num).map(i => index+1)}.flatten.toSeq.toDF("group").withColumn("id",monotonicallyIncreasingId)
+
+val trainFinal = trainDFdense.join(groupDF, "id")
+
+
+// val paramMap = Map("eta" -> "1", "max_depth" -> "6", "silent" -> "1",
+//   "objective" -> "rank:pairwise", "num_workers" -> 1, "num_round" -> 5,
+//   "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"))
+
+// val paramMap = Map("eta" -> "1", "max_depth" -> "6", "silent" -> "1",
+//   "objective" -> "rank:pairwise", "num_workers" -> 1, "num_round" -> 5,
+//   "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"),
+//   "eval_metric" -> "ndcg")
+
+
+// val model = new XGBoostRegressor(paramMap).fit(trainFinal)
+
+// val prediction = model.transform(testDFdense)
+// prediction.show
+
+
+val Array(train, eval1) = trainFinal.randomSplit(Array(0.9, 0.1), 0)
+
+val paramMap = Map("eta" -> "1", "max_depth" -> "6", "silent" -> "1",
+  "objective" -> "rank:pairwise", "num_workers" -> 1, "num_round" -> 5,
+  "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"),
+  "eval_metric" -> "ndcg", "eval_sets" -> Map("eval1" -> eval1))
+
+val model = new XGBoostRegressor(paramMap).fit(trainFinal)
+
+val prediction = model.transform(testDFdense)
+prediction.show
+model.summary.validationObjectiveHistory
+model.summary.trainObjectiveHistory
+
+//表别清
+// temp.search_authorid
+// temp.jomei_search_cm_9156_click_edit
+// temp.jomei_search_cm_9156_click_clicks_data
+// temp.jomei_search_cm_9156_click_features_datas
+// temp.jomei_search_cm_9156_click_feature_result_data
+// temp.jomei_search_cm_9156_click_final_combine_data
+```
+
+
+
+###### 相关问题
+
+- objective的选择
+  - rank:ndcg is based on LambdaRank. rank:pairwise is based on LambdaMart. [issue](https://github.com/dmlc/xgboost/issues/2562#issuecomment-319353379)
+- 设置weight, [issue](https://github.com/dmlc/xgboost/issues/3981#issuecomment-447771754)
+- ndcg@, [issue](https://github.com/dmlc/xgboost/issues/4444) 最新版才支持，直到0.91也未修复，下载预编译的[jar包](https://github.com/criteo-forks/xgboost-jars/releases/tag/0.91.0-criteo-20190723-7ba5648 )也执行失败。应该在最新版》0.91会修复。
+
+###### api和文档
+
+[API](https://xgboost.readthedocs.io/en/release_0.90/jvm/scaladocs/xgboost4j-spark/index.html#ml.dmlc.xgboost4j.scala.spark.XGBoostTrainingSummary )
+
+[文档](https://readthedocs.org/projects/xgboost/downloads/pdf/release_0.90/ )
+
+[测试例子](https://github.com/dmlc/xgboost/blob/release_0.90/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostGeneralSuite.scala )
+
+######其他信息
 
 <https://github.com/databricks/xgboost-linux64/blob/master/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostDFSuite.scala> 
 
