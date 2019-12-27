@@ -2857,6 +2857,10 @@ spark-shell \
 --executor-memory 10G \
 --executor-cores 4 \
 --num-executors 4
+
+--master local[1]
+[*]  means for all, as many threads as there are in your machine. Local  keyword is used to run spark locally. There are different parameters that can be used with it .
+Local[*] is used to run spark locally with  as many worker threads as logical cores on your machine.
 ```
 
 
@@ -2929,7 +2933,7 @@ val testDFdense = testDF.withColumn("dense" , asDense($"features")).select(col("
 
 
 val xgbParam = Map("eta" -> 0.1f,
-      "missing" -> -999,
+      "missing" -> -999, //for sparse vector, it can only set 0 not -999
       "objective" -> "binary:logistic",
       "num_round" -> 5,
       "num_workers" -> 1,
@@ -2990,12 +2994,13 @@ val paramMap = Map("eta" -> "1", "max_depth" -> "6", "silent" -> "1",
 
 val model = new XGBoostRegressor(paramMap).fit(trainFinal)
 
-val prediction = model.transform(testDFdense)
+val prediction = model.transform(testDFdense).cache
 prediction.show
 model.summary.validationObjectiveHistory
 model.summary.trainObjectiveHistory
 
 //表别清
+// temp.
 // temp.search_authorid
 // temp.jomei_search_cm_9156_click_edit
 // temp.jomei_search_cm_9156_click_clicks_data
@@ -3020,6 +3025,36 @@ model.summary.trainObjectiveHistory
 [文档](https://readthedocs.org/projects/xgboost/downloads/pdf/release_0.90/ )
 
 [测试例子](https://github.com/dmlc/xgboost/blob/release_0.90/jvm-packages/xgboost4j-spark/src/test/scala/ml/dmlc/xgboost4j/scala/spark/XGBoostGeneralSuite.scala )
+
+
+
+###### 最终版
+
+```linux
+spark-shell \
+--jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar \
+--name jimmy_spark_debug \
+--master yarn \
+--queue root.baseDepSarchQueue \
+--deploy-mode client \
+--executor-memory 10G \
+--executor-cores 4 \
+--num-executors 4 \
+--conf spark.sql.shuffle.partitions=2001 \
+--conf spark.network.timeout=800 \
+--conf spark.scheduler.listenerbus.eventqueue.size=100000
+
+```
+
+
+
+```scala
+
+```
+
+
+
+
 
 ######其他信息
 
