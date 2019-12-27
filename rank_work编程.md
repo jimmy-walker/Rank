@@ -2836,7 +2836,7 @@ https://stackoverflow.com/a/32858321
 3. Run:
 
 ```
-./spark-2.4.3-bin-hadoop2.7/bin/spark-shell --master local[1] --jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar
+spark-shell --master local[1] --jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar
 ```
 
    
@@ -3013,10 +3013,153 @@ model.summary.trainObjectiveHistory
 
 ###### 相关问题
 
-- objective的选择
-  - rank:ndcg is based on LambdaRank. rank:pairwise is based on LambdaMart. [issue](https://github.com/dmlc/xgboost/issues/2562#issuecomment-319353379)
-- 设置weight, [issue](https://github.com/dmlc/xgboost/issues/3981#issuecomment-447771754)
+- objective的选择，所以理论上应该选"rank:ndcg"。
+  - `rank:pairwise`: Use LambdaMART to perform pairwise ranking where the pairwise loss is minimized
+  - `rank:ndcg`: Use LambdaMART to perform list-wise ranking where [Normalized Discounted Cumulative Gain (NDCG)](http://en.wikipedia.org/wiki/NDCG) is maximized
+  - `rank:map`: Use LambdaMART to perform list-wise ranking where [Mean Average Precision (MAP)](http://en.wikipedia.org/wiki/Mean_average_precision#Mean_average_precision) is maximized
+- 设置weight, [issue](https://github.com/dmlc/xgboost/issues/3981#issuecomment-447771754)，[only set weights on the query group level](https://github.com/dmlc/xgboost/issues/4168#issuecomment-465738541)，不能像lightgbm一样单个设置权重。 
 - ndcg@, [issue](https://github.com/dmlc/xgboost/issues/4444) 最新版才支持，直到0.91也未修复，下载预编译的[jar包](https://github.com/criteo-forks/xgboost-jars/releases/tag/0.91.0-criteo-20190723-7ba5648 )也执行失败。应该在最新版》0.91会修复。
+- local模式能够报错具体信息：`ERROR DataBatch: java.lang.RuntimeException: you can only specify missing value as 0.0 (the currently set value NaN) when you have SparseVector or Empty vector as your feature format`
+
+```linux
+spark-shell --master local[1] --jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar
+```
+
+- `No more replicas available`，[增大executor-memory的内存](https://dongkelun.com/2019/01/09/sparkExceptions/ )，从10G增加到20G。
+
+```linux
+19/12/27 13:48:01 WARN BlockManagerMasterEndpoint: No more replicas available for rdd_11_0 !
+19/12/27 13:48:02 WARN YarnSchedulerBackend$YarnSchedulerEndpoint: Requesting driver to remove executor 3 for reason Container from a bad node: container_e01_1575501641580_671686_01_000109 on host: kg-dn-58. Exit status: 134. Diagnostics: Exception from container-launch.
+Container id: container_e01_1575501641580_671686_01_000109
+Exit code: 134
+Exception message: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+Stack trace: ExitCodeException exitCode=134: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+        at org.apache.hadoop.util.Shell.runCommand(Shell.java:545)
+        at org.apache.hadoop.util.Shell.run(Shell.java:456)
+        at org.apache.hadoop.util.Shell$ShellCommandExecutor.execute(Shell.java:722)
+        at org.apache.hadoop.yarn.server.nodemanager.DefaultContainerExecutor.launchContainer(DefaultContainerExecutor.java:211)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:302)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:82)
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+
+Container exited with a non-zero exit code 134
+.
+19/12/27 13:48:02 ERROR YarnScheduler: Lost executor 3 on kg-dn-58: Container from a bad node: container_e01_1575501641580_671686_01_000109 on host: kg-dn-58. Exit status: 134. Diagnostics: Exception from container-launch.
+Container id: container_e01_1575501641580_671686_01_000109
+Exit code: 134
+Exception message: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+Stack trace: ExitCodeException exitCode=134: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+        at org.apache.hadoop.util.Shell.runCommand(Shell.java:545)
+        at org.apache.hadoop.util.Shell.run(Shell.java:456)
+        at org.apache.hadoop.util.Shell$ShellCommandExecutor.execute(Shell.java:722)
+        at org.apache.hadoop.yarn.server.nodemanager.DefaultContainerExecutor.launchContainer(DefaultContainerExecutor.java:211)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:302)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:82)
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+
+Container exited with a non-zero exit code 134
+.
+19/12/27 13:48:02 WARN TaskSetManager: Lost task 0.0 in stage 5.0 (TID 2645, kg-dn-58, executor 3): ExecutorLostFailure (executor 3 exited caused by one of the running tasks) Reason: Container from a bad node: container_e01_1575501641580_671686_01_000109 on host: kg-dn-58. Exit status: 134. Diagnostics: Exception from container-launch.
+Container id: container_e01_1575501641580_671686_01_000109
+Exit code: 134
+Exception message: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+Stack trace: ExitCodeException exitCode=134: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+        at org.apache.hadoop.util.Shell.runCommand(Shell.java:545)
+        at org.apache.hadoop.util.Shell.run(Shell.java:456)
+        at org.apache.hadoop.util.Shell$ShellCommandExecutor.execute(Shell.java:722)
+        at org.apache.hadoop.yarn.server.nodemanager.DefaultContainerExecutor.launchContainer(DefaultContainerExecutor.java:211)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:302)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:82)
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+
+Container exited with a non-zero exit code 134
+.
+19/12/27 13:48:02 ERROR XGBoostTaskFailedListener: Training Task Failed during XGBoost Training: ExecutorLostFailure(3,true,Some(Container from a bad node: container_e01_1575501641580_671686_01_000109 on host: kg-dn-58. Exit status: 134. Diagnostics: Exception from container-launch.
+Container id: container_e01_1575501641580_671686_01_000109
+Exit code: 134
+Exception message: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+Stack trace: ExitCodeException exitCode=134: /bin/bash: line 1: 30728 Aborted                 /usr/local/jdk1.8.0_172/bin/java -server -Xmx10240m '-Xloggc:/data1/app/spark_local_dir/executorGC.log' '-verbose:gc' '-XX:+UseGCLogFileRotation' '-XX:NumberOfGCLogFiles=10' '-XX:GCLogFileSize=100m' '-XX:+PrintGCDetails' '-XX:+PrintGCDateStamps' '-XX:+UseParNewGC' '-XX:+UseConcMarkSweepGC' '-XX:ParallelGCThreads=6' '-XX:ConcGCThreads=4' -Djava.io.tmpdir=/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/tmp '-Dspark.driver.port=14352' '-Dspark.network.timeout=800' -Dspark.yarn.app.container.log.dir=/data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109 -XX:OnOutOfMemoryError='kill %p' org.apache.spark.executor.CoarseGrainedExecutorBackend --driver-url spark://CoarseGrainedScheduler@hadoop2-client3:14352 --executor-id 3 --hostname kg-dn-58 --cores 4 --app-id application_1575501641580_671686 --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/__app__.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/xgboost4j-spark-0.90.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/akka-actor_2.11-2.3.11.jar --user-class-path file:/data6/hadoop/hd_space/tmp/nm-local-dir/usercache/baseDepSarch/appcache/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/config-1.2.1.jar > /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stdout 2> /data12/hadoop/nm/logs/application_1575501641580_671686/container_e01_1575501641580_671686_01_000109/stderr
+
+        at org.apache.hadoop.util.Shell.runCommand(Shell.java:545)
+        at org.apache.hadoop.util.Shell.run(Shell.java:456)
+        at org.apache.hadoop.util.Shell$ShellCommandExecutor.execute(Shell.java:722)
+        at org.apache.hadoop.yarn.server.nodemanager.DefaultContainerExecutor.launchContainer(DefaultContainerExecutor.java:211)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:302)
+        at org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch.call(ContainerLaunch.java:82)
+        at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+        at java.lang.Thread.run(Thread.java:748)
+
+
+Container exited with a non-zero exit code 134
+.)), stopping SparkContext
+[ERROR] [12/27/2019 13:48:02.700] [RabitTracker-akka.actor.default-dispatcher-4] [akka://RabitTracker/user/Handler] Uncaught exception thrown by worker.
+org.apache.spark.SparkException: Job 0 cancelled because SparkContext was shut down
+        at org.apache.spark.scheduler.DAGScheduler$$anonfun$cleanUpAfterSchedulerStop$1.apply(DAGScheduler.scala:932)
+        at org.apache.spark.scheduler.DAGScheduler$$anonfun$cleanUpAfterSchedulerStop$1.apply(DAGScheduler.scala:930)
+        at scala.collection.mutable.HashSet.foreach(HashSet.scala:78)
+        at org.apache.spark.scheduler.DAGScheduler.cleanUpAfterSchedulerStop(DAGScheduler.scala:930)
+        at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.onStop(DAGScheduler.scala:2128)
+        at org.apache.spark.util.EventLoop.stop(EventLoop.scala:84)
+        at org.apache.spark.scheduler.DAGScheduler.stop(DAGScheduler.scala:2041)
+        at org.apache.spark.SparkContext$$anonfun$stop$6.apply$mcV$sp(SparkContext.scala:1949)
+        at org.apache.spark.util.Utils$.tryLogNonFatalError(Utils.scala:1340)
+        at org.apache.spark.SparkContext.stop(SparkContext.scala:1948)
+        at org.apache.spark.TaskFailedListener$$anon$1$$anonfun$run$1.apply$mcV$sp(SparkParallelismTracker.scala:131)
+        at org.apache.spark.TaskFailedListener$$anon$1$$anonfun$run$1.apply(SparkParallelismTracker.scala:131)
+        at org.apache.spark.TaskFailedListener$$anon$1$$anonfun$run$1.apply(SparkParallelismTracker.scala:131)
+        at scala.util.DynamicVariable.withValue(DynamicVariable.scala:58)
+        at org.apache.spark.TaskFailedListener$$anon$1.run(SparkParallelismTracker.scala:130)
+        at org.apache.spark.scheduler.DAGScheduler.runJob(DAGScheduler.scala:737)
+        at org.apache.spark.SparkContext.runJob(SparkContext.scala:2061)
+        at org.apache.spark.SparkContext.runJob(SparkContext.scala:2082)
+        at org.apache.spark.SparkContext.runJob(SparkContext.scala:2101)
+        at org.apache.spark.SparkContext.runJob(SparkContext.scala:2126)
+        at org.apache.spark.rdd.RDD$$anonfun$foreachPartition$1.apply(RDD.scala:935)
+        at org.apache.spark.rdd.RDD$$anonfun$foreachPartition$1.apply(RDD.scala:933)
+        at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)
+        at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:112)
+        at org.apache.spark.rdd.RDD.withScope(RDD.scala:363)
+        at org.apache.spark.rdd.RDD.foreachPartition(RDD.scala:933)
+        at ml.dmlc.xgboost4j.scala.spark.XGBoost$$anonfun$trainDistributed$2$$anon$1.run(XGBoost.scala:452)
+
+ml.dmlc.xgboost4j.java.XGBoostError: XGBoostModel training failed
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$.ml$dmlc$xgboost4j$scala$spark$XGBoost$$postTrackerReturnProcessing(XGBoost.scala:582)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$$anonfun$trainDistributed$2.apply(XGBoost.scala:459)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$$anonfun$trainDistributed$2.apply(XGBoost.scala:435)
+  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+  at scala.collection.immutable.List.foreach(List.scala:392)
+  at scala.collection.TraversableLike$class.map(TraversableLike.scala:234)
+  at scala.collection.immutable.List.map(List.scala:296)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoost$.trainDistributed(XGBoost.scala:434)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoostRegressor.train(XGBoostRegressor.scala:190)
+  at ml.dmlc.xgboost4j.scala.spark.XGBoostRegressor.train(XGBoostRegressor.scala:48)
+  at org.apache.spark.ml.Predictor.fit(Predictor.scala:118)
+  ... 55 elided
+```
+
+
 
 ###### api和文档
 
@@ -3037,7 +3180,7 @@ spark-shell \
 --master yarn \
 --queue root.baseDepSarchQueue \
 --deploy-mode client \
---executor-memory 10G \
+--executor-memory 20G \
 --executor-cores 4 \
 --num-executors 4 \
 --conf spark.sql.shuffle.partitions=2001 \
@@ -3049,7 +3192,87 @@ spark-shell \
 
 
 ```scala
+import java.io.File
 
+import org.apache.spark.SparkContext
+import org.apache.spark.sql.expressions.{Window, WindowSpec}
+import org.apache.spark.sql.{Column, Row, SparkSession}
+import org.apache.spark.sql.types.{IntegerType, LongType}
+import org.apache.spark.ml.feature.{MinMaxScaler, QuantileDiscretizer, VectorAssembler}
+
+import scala.reflect.runtime.universe._
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.{linalg, Pipeline}
+import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.ml.feature.VectorAssembler
+import ml.dmlc.xgboost4j.scala.spark.{TrackerConf, XGBoostRegressor, XGBoostRegressionModel}
+
+import org.apache.spark.ml.linalg.Vector
+// val asDense = udf((v: Vector) => v.toDense)
+val getWeight = udf({diff: Double => if (diff < 15) 100.0 else 1.0})
+// val getWeightFromDiff = udf({group: Int => if (group < 15) 100.0 else 1.0})
+val date_end = "2019-12-26"
+val datatable = "temp.jomei_search_cm_9156_click"
+
+// 2.在具体实践过程中，我使用t日凌晨时的数据作为特征，t日当天的点击数据作为预测值进行训练。
+// 4.以下面t=2019年12月10日该日作为展示。
+// 在t日当天凌晨王北车的梦半的特征值皆为0，
+// 但是仍然能够在最终的排序过程中排到前面，这是因为算法可以根据其各个特征进行权衡排序。
+
+val sql_final_read= s"""select keyword, scid_albumid, scid, choric_singer, songname, num, gradelog, 
+is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, 
+final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, 
+final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, 
+final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, 
+hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from """ + s"$datatable"+s"_final_combine_data where cdt = '$date_end'"
+
+val df_final_read = spark.sql(sql_final_read).na.drop //avoid following missing value effect
+
+val features_array = Array("is_vip", "single", "choric", "timelength", "final_ownercount", "final_playcount", "final_audio_play_all", "final_audio_full_play_all", "final_audio_play_first90days", "final_audio_full_play_first90days", "final_audio_download_all", "final_audio_comment", "sorts", "sort_offset", "edit_sort", "bi_sort", "final_search_cnt", "final_local_cnt", "final_diff", "xiaoyin", "danqu", "pianduan", "banzou", "undo", "hunyin", "yousheng", "lingsheng", "chunyinyue", "dj", "xianchang", "quyi", "guagnchangwu", "xiju")
+
+val vectorAssembler = new VectorAssembler().
+    setInputCols(features_array).
+    setOutputCol("features")
+
+val window_group = Window.orderBy("keyword")
+val window_weight = Window.partitionBy("keyword")
+
+val xgbInput = vectorAssembler.transform(df_final_read).
+withColumnRenamed("gradelog", "label").
+withColumn("group", dense_rank().over(window_group)).
+withColumn("pre_weight", getWeight($"final_diff")).
+withColumn("weight", max($"pre_weight").over(window_weight)).
+select("features", "label", "group", "weight", "keyword", "choric_singer", "songname")
+//withColumn("dense", asDense($"features")).
+//select(col("label"), col("dense").as("features"), col("group"), col("keyword"), col("choric_singer"), col("songname"), col("weight"))
+
+xgbInput.persist()
+
+//for nthread must be no larger than spark.task.cpus
+//verbosity to 2 will show train-ndcg
+//early stop should set maximize_evaluation_metrics and num_early_stopping_rounds
+//others is followed:https://zhuanlan.zhihu.com/p/97126793
+//https://sthsf.github.io/wiki/Algorithm/EnsembleMethod/EnsembleLearning/xgboost%E5%8F%82%E6%95%B0%E5%92%8C%E8%B0%83%E5%8F%82%E6%8A%80%E5%B7%A7.html
+// Step 1：选择一组初始参数；
+// Step 2：改变 max_depth 和 min_child_weight；
+// Step 3：调节 gamma 降低模型过拟合风险；
+// Step 4：调节 subsample 和 colsample_bytree 改变数据采样策略；
+// Step 5：调节学习率 eta；
+val Array(train_part, eval_part) = xgbInput.randomSplit(Array(0.9, 0.1), 0)
+
+val paramMap = Map("eta" -> "0.5", "max_depth" -> "6", "verbosity" -> "2",
+  "objective" -> "rank:ndcg", "num_workers" -> 1, "num_round" -> 200,
+  "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"),
+  "eval_metric" -> "ndcg", "min_child_weight" -> 6, "missing" -> 0.0,
+  "eval_sets" -> Map("eval1" -> eval_part), "maximize_evaluation_metrics"-> true,
+  "num_early_stopping_rounds" -> 10)
+
+val model = new XGBoostRegressor(paramMap).setWeightCol("weight").fit(xgbInput)
+model.summary.trainObjectiveHistory
+val prediction = model.transform(xgbInput)
+// prediction.filter($"keyword" === "周杰伦").sort($"label".desc).show()
+prediction.filter($"keyword" === "你若三冬").sort($"prediction".desc).show()
 ```
 
 
