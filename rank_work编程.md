@@ -2777,7 +2777,15 @@ jdk》jre》jvm **逐渐包含**
 
 JDK(Java Development Kit) 又称 J2SDK(Java2 Software Development Kit)，是 Java 开发工具包，它提供了 Java 的开发环境(提供了编译器 javac 等工具，用于将 java 文件编译为 class 文件)和运行环境(提 供了 JVM 和 Runtime 辅助包，用于解析 class 文件使其得到运行)。如果你下载并安装了 JDK，那么你不仅可以开发 Java 程序，也同时拥有了运行 Java 程序的平台。 
 
+**JRE（Java Runtime Environment， Java运行环境）**是Java平台，所有的程序都要在JRE下才能够运行。包括JVM和Java核心类库和支持文件。
 
+**JDK（Java Development Kit，Java开发工具包）**是用来编译、调试Java程序的开发工具包。包括Java工具（javac/java/jdb等）和Java基础的类库（java API ）。
+
+**JVM（Java Virtual Machine， Java虚拟机）**是JRE的一部分。JVM主要工作是解释自己的指令集（即字节码）并映射到本地的CPU指令集和OS的系统调用。Java语言是跨平台运行的，不同的操作系统会有不同的JVM映射规则，使之与操作系统无关，完成跨平台性。
+
+
+
+总结：使用JDK（调用JAVA API）开发JAVA程序后，通过JDK中的编译程序（javac）将Java程序编译为Java字节码，在JRE上运行这些字节码，**JVM会解析并映射到真实操作系统的CPU指令集和OS的系统调用**。 
 
 apt-get update
 
@@ -3017,7 +3025,7 @@ model.summary.trainObjectiveHistory
   - `rank:pairwise`: Use LambdaMART to perform pairwise ranking where the pairwise loss is minimized
   - `rank:ndcg`: Use LambdaMART to perform list-wise ranking where [Normalized Discounted Cumulative Gain (NDCG)](http://en.wikipedia.org/wiki/NDCG) is maximized
   - `rank:map`: Use LambdaMART to perform list-wise ranking where [Mean Average Precision (MAP)](http://en.wikipedia.org/wiki/Mean_average_precision#Mean_average_precision) is maximized
-- 设置weight, [issue](https://github.com/dmlc/xgboost/issues/3981#issuecomment-447771754)，[only set weights on the query group level](https://github.com/dmlc/xgboost/issues/4168#issuecomment-465738541)，不能像lightgbm一样单个设置权重。 
+- 设置weight, [issue](https://github.com/dmlc/xgboost/issues/3981#issuecomment-447771754)，[only set weights on the query group level](https://github.com/dmlc/xgboost/issues/4168#issuecomment-465738541)，不能像lightgbm一样单个设置权重，the instances in the same group have to be assigned with the same weigh
 - ndcg@, [issue](https://github.com/dmlc/xgboost/issues/4444) 最新版才支持，直到0.91也未修复，下载预编译的[jar包](https://github.com/criteo-forks/xgboost-jars/releases/tag/0.91.0-criteo-20190723-7ba5648 )也执行失败。应该在最新版》0.91会修复。
 - local模式能够报错具体信息：`ERROR DataBatch: java.lang.RuntimeException: you can only specify missing value as 0.0 (the currently set value NaN) when you have SparseVector or Empty vector as your feature format`
 
@@ -3025,7 +3033,11 @@ model.summary.trainObjectiveHistory
 spark-shell --master local[1] --jars ./xgboost4j-0.90.jar,./xgboost4j-spark-0.90.jar,./akka-actor_2.11-2.3.11.jar,./config-1.2.1.jar
 ```
 
-- `No more replicas available`，[增大executor-memory的内存](https://dongkelun.com/2019/01/09/sparkExceptions/ )，从10G增加到20G。
+- ~~`No more replicas available`，[增大executor-memory的内存](https://dongkelun.com/2019/01/09/sparkExceptions/ )。应该不是这个问题。
+
+- `Container exited with a non-zero exit code 134`，[增大driver-memory的内存 ](https://discuss.xgboost.ai/t/container-exited-with-a-non-zero-exit-code-134/133 )
+
+- 查看error的方法：[找到application的id](https://blog.csdn.net/qq_33915826/article/details/103374366 )，执行`yarn logs -applicationId application_1574035425015_31345`
 
 ```linux
 19/12/27 13:48:01 WARN BlockManagerMasterEndpoint: No more replicas available for rdd_11_0 !
@@ -3180,13 +3192,13 @@ spark-shell \
 --master yarn \
 --queue root.baseDepSarchQueue \
 --deploy-mode client \
---executor-memory 20G \
+--executor-memory 10G \
 --executor-cores 4 \
 --num-executors 4 \
 --conf spark.sql.shuffle.partitions=2001 \
 --conf spark.network.timeout=800 \
---conf spark.scheduler.listenerbus.eventqueue.size=100000
-
+--conf spark.scheduler.listenerbus.eventqueue.size=100000 \
+--driver-memory 4G
 ```
 
 
@@ -3209,16 +3221,19 @@ import org.apache.spark.ml.feature.VectorAssembler
 import ml.dmlc.xgboost4j.scala.spark.{TrackerConf, XGBoostRegressor, XGBoostRegressionModel}
 
 import org.apache.spark.ml.linalg.Vector
+// import scala.util.Random
+
 // val asDense = udf((v: Vector) => v.toDense)
 val getWeight = udf({diff: Double => if (diff < 15) 100.0 else 1.0})
 // val getWeightFromDiff = udf({group: Int => if (group < 15) 100.0 else 1.0})
-val date_end = "2019-12-26"
+val date_end = "2019-12-28"
 val datatable = "temp.jomei_search_cm_9156_click"
 
 // 2.在具体实践过程中，我使用t日凌晨时的数据作为特征，t日当天的点击数据作为预测值进行训练。
 // 4.以下面t=2019年12月10日该日作为展示。
 // 在t日当天凌晨王北车的梦半的特征值皆为0，
 // 但是仍然能够在最终的排序过程中排到前面，这是因为算法可以根据其各个特征进行权衡排序。
+
 
 val sql_final_read= s"""select keyword, scid_albumid, scid, choric_singer, songname, num, gradelog, 
 is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, 
@@ -3247,7 +3262,7 @@ select("features", "label", "group", "weight", "keyword", "choric_singer", "song
 //withColumn("dense", asDense($"features")).
 //select(col("label"), col("dense").as("features"), col("group"), col("keyword"), col("choric_singer"), col("songname"), col("weight"))
 
-xgbInput.persist()
+// xgbInput.persist()
 
 //for nthread must be no larger than spark.task.cpus
 //verbosity to 2 will show train-ndcg
@@ -3259,20 +3274,139 @@ xgbInput.persist()
 // Step 3：调节 gamma 降低模型过拟合风险；
 // Step 4：调节 subsample 和 colsample_bytree 改变数据采样策略；
 // Step 5：调节学习率 eta；
-val Array(train_part, eval_part) = xgbInput.randomSplit(Array(0.9, 0.1), 0)
+
+// split into train set and eval set: 0.9, 0.1
+// val Array(train_part, eval_part) = xgbInput.randomSplit(Array(0.9, 0.1), 0)
+val all_keywords_origin = xgbInput.select("keyword").distinct().collect().map(
+    row => row.getString(0)
+).toList.sorted //to make sure the result could be repeated
+util.Random.setSeed(100)
+val all_keywords = util.Random.shuffle(all_keywords_origin)
+println(all_keywords.slice(0, 10)) //it may be different in two choices, so println top10 for confirm
+val train_percent = 0.9
+val eval_percent = 0.05
+val test_percent = 0
+val eval_length = (all_keywords.length * eval_percent).toInt
+val test_length = (all_keywords.length * test_percent).toInt
+val train_length = all_keywords.length - eval_length - test_length
+val eval_keywords = all_keywords.slice(0, eval_length)
+val test_keywords = all_keywords.slice(eval_length, eval_length+test_length)
+val train_keywords = all_keywords.slice(eval_length+test_length, all_keywords.length)
+
+val df_eval = xgbInput.filter($"keyword".isin(eval_keywords:_*)).toDF
+val df_train = xgbInput.filter($"keyword".isin(train_keywords:_*)).toDF
+
+xgbInput.persist()
+// df_eval.persist()
+// df_train.persist()
+//:_*作为一个整体，告诉编译器你希望将某个参数当作参数序列处理！例如val s = sum(1 to 5:_*)就是将1 to 5当作参数序列处理
+// val paramMap = Map("eta" -> "0.5", "max_depth" -> "6", "verbosity" -> "2",
+//   "objective" -> "rank:ndcg", "num_workers" -> 1, "num_round" -> 200,
+//   "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"),
+//   "eval_metric" -> "ndcg", "min_child_weight" -> 6, "missing" -> 0.0,
+//   "eval_sets" -> Map("eval1" -> df_eval), "maximize_evaluation_metrics"-> true,
+//   "num_early_stopping_rounds" -> 30)
+// val model = new XGBoostRegressor(paramMap).setWeightCol("weight").fit(df_train)
 
 val paramMap = Map("eta" -> "0.5", "max_depth" -> "6", "verbosity" -> "2",
   "objective" -> "rank:ndcg", "num_workers" -> 1, "num_round" -> 200,
   "group_col" -> "group", "tracker_conf" -> TrackerConf(0L, "scala"),
-  "eval_metric" -> "ndcg", "min_child_weight" -> 6, "missing" -> 0.0,
-  "eval_sets" -> Map("eval1" -> eval_part), "maximize_evaluation_metrics"-> true,
-  "num_early_stopping_rounds" -> 10)
-
+  "eval_metric" -> "ndcg", "min_child_weight" -> 6, "missing" -> 0.0)
 val model = new XGBoostRegressor(paramMap).setWeightCol("weight").fit(xgbInput)
+
 model.summary.trainObjectiveHistory
-val prediction = model.transform(xgbInput)
+// val prediction = model.transform(xgbInput)
+// df_final_read.filter($"final_diff" === 1).sort($"num".desc).show
 // prediction.filter($"keyword" === "周杰伦").sort($"label".desc).show()
-prediction.filter($"keyword" === "你若三冬").sort($"prediction".desc).show()
+// prediction.filter($"keyword" === "薛之谦").sort($"prediction".desc).show()
+
+
+//3) read feature data of today(data_end) with num field
+val sql_feature_today_read= s"select keyword, scid_albumid, scid, choric_singer, songname, num, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from "+s"$datatable"+s"_feature_result_data where cdt = '$date_end'"
+val todayDf_read = spark.sql(sql_feature_today_read)
+//    val max_grade = 5
+val threshold_keyword = 1000
+val max_grade = 5
+val window_keyword = Window.partitionBy("keyword")
+val df_final = todayDf_read.withColumn("log", log10($"num").cast(DoubleType)).
+  withColumn("maxlog", max("log").over(window_keyword).cast(DoubleType)).
+  withColumn("gradelog", round(lit(max_grade) * ($"log"/$"maxlog")).cast(DoubleType)).
+  withColumn("total", sum($"num").over(window_keyword)).
+  filter($"total" > s"$threshold_keyword" and $"gradelog".isNotNull)
+
+
+val df_test = vectorAssembler.transform(df_final).
+withColumnRenamed("gradelog", "label")//.
+//select("features", "label", "keyword", "choric_singer", "songname")
+
+val prediction_test = model.transform(df_test)
+// prediction_test.filter($"keyword" === "薛之谦").select("features", "label", "keyword", "choric_singer", "songname", "prediction").sort($"prediction".desc).show()
+
+prediction_test.createOrReplaceTempView("prediction_test_data")
+
+    val sql_predict_ltr_create= """
+create table if not exists """+s"""$datatable"""+"""_predict_ltr_data
+(
+keyword string,
+scid_albumid string,
+scid string,
+choric_singer string,
+songname string,
+num double,
+label double,
+prediction double,
+is_vip double,
+single double,
+choric double,
+timelength double,
+final_ownercount double,
+final_playcount double,
+final_audio_play_all double,
+final_audio_full_play_all double,
+final_audio_play_first90days double,
+final_audio_full_play_first90days double,
+final_audio_download_all double,
+final_audio_comment double,
+sorts double,
+sort_offset double,
+edit_sort double,
+bi_sort double,
+final_search_cnt double,
+final_local_cnt double,
+final_diff double,
+xiaoyin double,
+danqu double,
+pianduan double,
+banzou double,
+undo double,
+hunyin double,
+yousheng double,
+lingsheng double,
+chunyinyue double,
+dj double,
+xianchang double,
+quyi double,
+guagnchangwu double,
+xiju double
+)
+partitioned by (cdt string)
+row format delimited fields terminated by '|' lines terminated by '\n' stored as textfile
+"""
+
+    spark.sql(sql_predict_ltr_create)
+
+    val sql_predict_ltr_save= s"""
+INSERT OVERWRITE TABLE """+s"""$datatable"""+s"""_predict_ltr_data PARTITION(cdt='$date_end') select keyword, scid_albumid, scid, choric_singer, songname, num, label, prediction, is_vip, single, choric, timelength, final_ownercount, final_playcount, final_audio_play_all, final_audio_full_play_all, final_audio_play_first90days, final_audio_full_play_first90days, final_audio_download_all, final_audio_comment, sorts, sort_offset, edit_sort, bi_sort, final_search_cnt, final_local_cnt, final_diff, xiaoyin, danqu, pianduan, banzou, undo, hunyin, yousheng, lingsheng, chunyinyue, dj, xianchang, quyi, guagnchangwu, xiju from prediction_test_data
+"""
+    spark.sql(sql_predict_ltr_save)
+
+    spark.stop() //to avoid ERROR LiveListenerBus: SparkListenerBus has already stopped! Dropping event SparkListenerExecutorMetricsUpdate
+
+
+
+
+// val xgbModelPath = "/data2/baseDepSarch/model"
+// model.write.overwrite().save(xgbModelPath)
 ```
 
 
